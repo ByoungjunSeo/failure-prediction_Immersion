@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ce-simulator
+  namespace: failure-prediction
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: ce-simulator
+            image: 10.100.230.6:5000/failure-pred:cpu-latest
+            imagePullPolicy: IfNotPresent
+            command: ["python", "-c"]
+            args:
+            - |
+              import os, time, logging, random, hashlib, requests
+
+              logging.basicConfig(level=logging.INFO)
+              log = logging.getLogger("ce-sim")
+
+              VM_URL = "http://victoria-metrics-svc.failure-prediction:8428"
+              now = int(time.time())
+              minute_of_hour = (now // 60) % 60
+
+              # Per-host scenario: base CE rate (per minute) and failure-progression ramp.
+              # vmgnode26 simulates a degrading DIMM: linear ramp across the hour,
+              # vmgnode23 is noisy but stable, the others are healthy.
+              hosts = {
+                  "vmgnode18": {"ce_base": 0.5, "ce_ramp": 0.0,  "ue_p": 0.0},
+                  "vmgnode23": {"ce_base": 4.0, "ce_ramp": 0.05, "ue_p": 0.0},
+                  "vmgnode26": {"ce_base": 8.0, "ce_ramp": 0.8,  "ue_p": 0.02},
+                  "vmgnode30": {"ce_base": 0.3, "ce_ramp": 0.0,  "ue_p": 0.0},
+              }
+
+              lines = []
+              for host, cfg in hosts.items():
+                  seed = int(hashlib.md5(f"{host}:{now//60}".encode()).hexdigest()[:8], 16)
+                  rnd = random.Random(seed)
+                  lam = cfg["ce_base"] + cfg["ce_ramp"] * minute_of_hour
+                  ce = sum(1 for _ in range(int(lam * 2)) if rnd.random() < 0.5)
+                  ce += rnd.randint(0, max(1, int(lam)))
+                  ue = 1 if rnd.random() < cfg["ue_p"] else 0
+                  lines.append(f'memory_errors_correctable{{server="{host}",source="sim"}} {ce}')
+                  lines.append(f'memory_errors_uncorrectable{{server="{host}",source="sim"}} {ue}')
+                  log.info("host=%s lam=%.2f ce=%d ue=%d", host, lam, ce, ue)
+
+              body = "\n".join(lines) + "\n"
+              resp = requests.post(
+                  f"{VM_URL}/api/v1/import/prometheus",
+                  data=body,
+                  headers={"Content-Type": "text/plain"},
+                  timeout=10,
+              )
+              resp.raise_for_status()
+              log.info("pushed %d metrics, status=%d", len(lines), resp.status_code)

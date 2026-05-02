@@ -1,0 +1,67 @@
+# --- Data (재생성 가능, 큰 파일) ---
+data/
+*.csv
+*.parquet
+*.h5
+
+# --- Models: root /models/ 안의 체크포인트만 살리고 나머지 산출물은 무시 ---
+# (`models/`로 쓰면 src/models/ 같은 소스 디렉토리까지 잡혀서 root만 한정함)
+/models/*
+!/models/checkpoints/
+/models/checkpoints/*
+!/models/checkpoints/*.json
+!/models/checkpoints/*.pt
+*.onnx
+*.joblib
+*.pkl
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+credentials*.json
+!*.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Conda / venv ---
+.conda/
+.venv/
+venv/
+env/
+
+# --- Logs / runtime ---
+logs/
+*.log
+mlruns/
+mlartifacts/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+
+# --- Vendor (Anomaly-Transformer clone) ---
+vendor/
+
+# --- Claude Code 작업 디렉토리 (커밋 금지) ---
+.claude/
+.claude_history
+docs/kubectl

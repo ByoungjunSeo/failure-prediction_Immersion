@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: xgb-retrainer
+  namespace: failure-prediction
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xgb-retrainer
+  namespace: failure-prediction
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xgb-retrainer
+  namespace: failure-prediction
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xgb-retrainer
+subjects:
+- kind: ServiceAccount
+  name: xgb-retrainer
+  namespace: failure-prediction
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: retrain-xgboost
+  namespace: failure-prediction
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: xgb-retrainer
+          restartPolicy: OnFailure
+          containers:
+          - name: trainer
+            image: 10.100.230.6:5000/failure-pred:cpu-latest
+            imagePullPolicy: IfNotPresent
+            resources:
+              requests:
+                cpu: "4"
+                memory: 8Gi
+            env:
+            - name: VM_URL
+              value: http://victoria-metrics-svc.failure-prediction:8428
+            volumeMounts:
+            - name: retrain-script
+              mountPath: /scripts
+            - name: workdir
+              mountPath: /work
+            command: ["bash", "-euxo", "pipefail", "-c"]
+            args:
+            - |
+              # 1) 학습
+              python /scripts/retrain_xgboost.py \
+                --vm-url "$VM_URL" \
+                --pos-quantile 0.5 \
+                --sample-step-min 30 \
+                --output /work/xgboost_model.json \
+                --metrics-out /work/metrics.json
+              cat /work/metrics.json
+
+              # 2) kubectl 설치 확인 (image에 미포함 시 다운로드)
+              if ! command -v kubectl >/dev/null 2>&1; then
+                curl -sSL -o /usr/local/bin/kubectl \
+                  https://dl.k8s.io/release/v1.27.10/bin/linux/amd64/kubectl
+                chmod +x /usr/local/bin/kubectl
+              fi
+
+              # 3) ConfigMap 갱신
+              kubectl create configmap xgboost-model -n failure-prediction \
+                --from-file=xgboost_model.json=/work/xgboost_model.json \
+                --dry-run=client -o yaml | kubectl apply -f -
+
+              # 4) Ray pod 재시작 — Predictor가 새 모델 다시 로드
+              kubectl delete pod -n failure-prediction \
+                -l ray.io/cluster=failure-pred --wait=false
+
+              echo "재학습 + 배포 완료"
+          volumes:
+          - name: retrain-script
+            configMap:
+              name: retrain-script
+              defaultMode: 0755
+          - name: workdir
+            emptyDir: {}

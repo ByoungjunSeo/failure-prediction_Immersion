@@ -1,0 +1,151 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: failure-pred
+  namespace: failure-prediction
+spec:
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: 0.0.0.0
+      num-cpus: "8"
+      num-gpus: "1"
+    template:
+      spec:
+        nodeSelector:
+          kubernetes.io/hostname: node1
+        tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+        containers:
+        - name: ray-head
+          image: 10.100.230.6:5000/failure-pred:gpu-latest
+          imagePullPolicy: Always
+          env:
+          - name: RAY_SERVE_HTTP_HOST
+            value: "0.0.0.0"
+          - name: VICTORIA_METRICS_URL
+            value: http://victoria-metrics-svc.failure-prediction:8428
+          - name: AT_THRESHOLD
+            value: "2500"
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 8000
+            name: serve
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          readinessProbe:
+            exec:
+              command:
+              - bash
+              - -c
+              - |
+                curl -fs --max-time 5 http://localhost:52365/api/local_raylet_healthz | grep -q success \
+                  && curl -fs --max-time 10 http://localhost:8265/api/gcs_healthz | grep -q success
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 15
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command:
+              - bash
+              - -c
+              - |
+                curl -fs --max-time 5 http://localhost:52365/api/local_raylet_healthz | grep -q success \
+                  && curl -fs --max-time 10 http://localhost:8265/api/gcs_healthz | grep -q success
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 20
+          volumeMounts:
+          - mountPath: /app/rayserve
+            name: app-code
+          - mountPath: /app/configs
+            name: servers-config
+          - mountPath: /app/models/checkpoints/xgboost_model.json
+            name: xgboost-model
+            subPath: xgboost_model.json
+        volumes:
+        - name: app-code
+          configMap:
+            name: ensemble-app
+        - name: servers-config
+          configMap:
+            name: servers-config
+        - name: xgboost-model
+          configMap:
+            name: xgboost-model
+  workerGroupSpecs:
+  - groupName: cpu-workers
+    replicas: 2
+    minReplicas: 1
+    maxReplicas: 4
+    rayStartParams:
+      num-cpus: "8"
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: 10.100.230.6:5000/failure-pred:cpu-latest
+          env:
+          - name: RAY_SERVE_HTTP_HOST
+            value: "0.0.0.0"
+          ports:
+          - containerPort: 8000
+            name: serve
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+          readinessProbe:
+            exec:
+              command:
+              - bash
+              - -c
+              - curl -fs --max-time 5 http://localhost:52365/api/local_raylet_healthz | grep -q success
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command:
+              - bash
+              - -c
+              - curl -fs --max-time 5 http://localhost:52365/api/local_raylet_healthz | grep -q success
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 20
+          volumeMounts:
+          - mountPath: /app/rayserve
+            name: app-code
+          - mountPath: /app/configs
+            name: servers-config
+          - mountPath: /app/models/checkpoints/xgboost_model.json
+            name: xgboost-model
+            subPath: xgboost_model.json
+        volumes:
+        - name: app-code
+          configMap:
+            name: ensemble-app
+        - name: servers-config
+          configMap:
+            name: servers-config
+        - name: xgboost-model
+          configMap:
+            name: xgboost-model

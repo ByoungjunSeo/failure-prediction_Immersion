@@ -1,0 +1,244 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "hpc-failure-pred",
+    "title": "HPC 메모리 장애 예측 대시보드",
+    "tags": ["hpc", "memory", "failure-prediction"],
+    "timezone": "Asia/Seoul",
+    "refresh": "30s",
+    "time": {
+      "from": "now-15m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "서버별 앙상블 장애 확률",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "failure_probability",
+            "legendFormat": "{{server}}",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "#EAB839", "value": 0.3},
+                {"color": "orange", "value": 0.65},
+                {"color": "red", "value": 0.85}
+              ]
+            },
+            "unit": "percentunit"
+          }
+        },
+        "options": {
+          "reduceOptions": {"calcs": ["lastNotNull"]},
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        }
+      },
+      {
+        "id": 2,
+        "title": "DIMM별 CE 에러 시계열",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "memory_errors",
+            "legendFormat": "{{server}} mc{{mc}}/ch{{channel}}",
+            "instant": false,
+            "range": true
+          },
+          {
+            "refId": "B",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "esxi_vmkernel_error_cnt",
+            "legendFormat": "vmkernel {{host}}",
+            "instant": false,
+            "range": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 20,
+              "pointSize": 5,
+              "showPoints": "always"
+            },
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"]}
+        }
+      },
+      {
+        "id": 3,
+        "title": "모델별 스코어 비교 (Chronos / MOIRAI / Anomaly Transformer)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "model_score{model=\"chronos\"}",
+            "legendFormat": "Chronos {{server}}",
+            "instant": false,
+            "range": true
+          },
+          {
+            "refId": "B",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "model_score{model=\"moirai\"}",
+            "legendFormat": "MOIRAI {{server}}",
+            "instant": false,
+            "range": true
+          },
+          {
+            "refId": "C",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "model_score{model=\"anomaly_transformer\"}",
+            "legendFormat": "AnomalyT {{server}}",
+            "instant": false,
+            "range": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "pointSize": 5,
+              "showPoints": "always"
+            },
+            "unit": "percentunit",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "orange", "value": 0.65},
+                {"color": "red", "value": 0.85}
+              ]
+            }
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"]}
+        }
+      },
+      {
+        "id": 4,
+        "title": "ESXi 호스트 상태",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "esxi_cpu_usage",
+            "legendFormat": "CPU {{host}}",
+            "instant": false,
+            "range": true
+          },
+          {
+            "refId": "B",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "esxi_mem_usage",
+            "legendFormat": "MEM {{host}}",
+            "instant": false,
+            "range": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 15,
+              "pointSize": 5,
+              "showPoints": "always"
+            },
+            "unit": "percent"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "last"]}
+        }
+      },
+      {
+        "id": 5,
+        "title": "장애 확률 추이 (서버별)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+        "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+            "expr": "failure_probability",
+            "legendFormat": "{{server}}",
+            "instant": false,
+            "range": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 20,
+              "gradientMode": "scheme",
+              "pointSize": 5,
+              "showPoints": "always",
+              "thresholdsStyle": {
+                "mode": "dashed"
+              }
+            },
+            "unit": "percentunit",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "orange", "value": 0.65},
+                {"color": "red", "value": 0.85}
+              ]
+            }
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"]}
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}
