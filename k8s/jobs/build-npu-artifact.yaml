@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: build-npu-artifact
+  namespace: failure-prediction
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      nodeSelector:
+        furiosa.ai/npu.family: rngd
+      restartPolicy: OnFailure
+      containers:
+      - name: builder
+        image: 10.100.230.130:5000/failure-pred:npu-latest
+        imagePullPolicy: Always
+        command: ["python", "/app/build_npu_artifact.py"]
+        env:
+        - name: HF_HOME
+          value: /artifacts/.hf
+        - name: ARTIFACT_DIR
+          value: /artifacts/qwen3-embed-0.6b
+        - name: MODEL_ID
+          value: Qwen/Qwen3-Embedding-0.6B
+        volumeMounts:
+        - name: artifacts
+          mountPath: /artifacts
+        resources:
+          limits:
+            cpu: "16"
+            memory: 32Gi
+            furiosa.ai/rngd: "1"
+          requests:
+            cpu: "4"
+            memory: 8Gi
+            furiosa.ai/rngd: "1"
+      volumes:
+      - name: artifacts
+        persistentVolumeClaim:
+          claimName: pvc-npu-artifacts

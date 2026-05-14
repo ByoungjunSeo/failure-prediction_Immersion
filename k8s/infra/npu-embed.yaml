@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: npu-embed
+  namespace: failure-prediction
+  labels: {app: npu-embed}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}     # NPU 1대 — 동시 2 pod 불가
+  selector:
+    matchLabels: {app: npu-embed}
+  template:
+    metadata:
+      labels: {app: npu-embed}
+    spec:
+      nodeSelector:
+        furiosa.ai/npu.family: rngd
+      securityContext:
+        seccompProfile:
+          type: Unconfined        # RNGD 드라이버가 io_uring 호출 → 기본 seccomp 차단됨
+      containers:
+      - name: serve
+        image: 10.100.230.130:5000/failure-pred:npu-latest
+        imagePullPolicy: Always
+        ports:
+        - {containerPort: 8000, name: openai-api}
+        env:
+        - {name: ARTIFACT_DIR, value: /artifacts/qwen3-embed-0.6b}
+        - {name: MODEL_ID,     value: Qwen/Qwen3-Embedding-0.6B}
+        - {name: SERVE_HOST,   value: "0.0.0.0"}
+        - {name: SERVE_PORT,   value: "8000"}
+        resources:
+          limits:
+            cpu: "16"
+            memory: 32Gi
+            furiosa.ai/rngd: "1"
+          requests:
+            cpu: "4"
+            memory: 16Gi
+            furiosa.ai/rngd: "1"
+        readinessProbe:
+          httpGet: {path: /health, port: 8000}
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 30
+        livenessProbe:
+          httpGet: {path: /health, port: 8000}
+          initialDelaySeconds: 180
+          periodSeconds: 30
+          failureThreshold: 5
+        volumeMounts:
+        - name: artifacts
+          mountPath: /artifacts
+      volumes:
+      - name: artifacts
+        persistentVolumeClaim:
+          claimName: pvc-npu-artifacts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: npu-embed-svc
+  namespace: failure-prediction
+spec:
+  selector: {app: npu-embed}
+  ports:
+  - {port: 8000, targetPort: 8000, name: openai-api}

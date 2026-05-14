@@ -3,12 +3,14 @@
 import logging
 import os
 import sys
+import asyncio
+
+import aiohttp
 import numpy as np
 import pandas as pd
 import ray
 from fastapi import FastAPI
 from ray import serve
-import asyncio
 
 sys.path.insert(0, "/app")
 logging.basicConfig(level=logging.INFO)
@@ -28,7 +30,7 @@ class ChronosPredictor:
             from chronos import ChronosPipeline
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
             self.pipeline = ChronosPipeline.from_pretrained(
-                "amazon/chronos-t5-small", device_map=device, dtype=torch.float32)
+                "amazon/chronos-t5-small", device_map=device, torch_dtype=torch.float32)
             logger.info("Chronos loaded: %s", device)
         except Exception as e:
             logger.warning("Chronos dummy: %s", e)
@@ -119,11 +121,13 @@ class AnomalyTransformerPredictor:
         self.at_model = None
         self.threshold = 1.0
         self.win_size = 100
+        self.device = "cpu"
         try:
             import torch
             sys.path.insert(0, "/app/vendor/Anomaly-Transformer")
             from model.AnomalyTransformer import AnomalyTransformer
-            device = "cpu"
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            self.device = device
             ckpt = torch.load("/app/models/checkpoints/anomaly_transformer.pt",
                               map_location=device, weights_only=False)
             cfg = ckpt["config"]
@@ -155,7 +159,7 @@ class AnomalyTransformerPredictor:
             data = np.array(ce_values[-self.win_size:], dtype=np.float32)
             if len(data) < self.win_size:
                 data = np.pad(data, (self.win_size - len(data), 0))
-            tensor = torch.tensor(data).unsqueeze(0).unsqueeze(-1)
+            tensor = torch.tensor(data).unsqueeze(0).unsqueeze(-1).to(self.device)
             with torch.no_grad():
                 output, *_ = self.at_model(tensor)
                 rec_error = float(torch.mean((output - tensor) ** 2).item())
@@ -245,15 +249,80 @@ def _compute_xgb_features(ce_values):
     return feats
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1}, route_prefix="/")
+@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 0.5},
+                  health_check_period_s=60, health_check_timeout_s=15)
+class LLMEmbeddingAnomalyPredictor:
+    """CE 시계열을 텍스트로 요약 → Qwen3-Embedding(NPU) 임베딩 → baseline 거리 → anomaly score.
+
+    NPU 추론은 별도 Deployment(`npu-embed-svc`)가 OpenAI 호환 HTTP API로 제공.
+    Ray 액터는 HTTP 클라이언트만 들고 NPU를 직접 잡지 않으므로 GPU/CPU 워커 어디서나 실행.
+    """
+
+    BASELINE_TEXT = ("CE counts last 60 minutes: mean=0.00, max=0, std=0.00, "
+                     "slope=0.00, nonzero_frac=0.00")
+
+    def __init__(self):
+        self.npu_url = os.getenv(
+            "NPU_EMBED_URL",
+            "http://npu-embed-svc.failure-prediction:8000/v1/embeddings")
+        self.model_id = os.getenv("NPU_EMBED_MODEL", "qwen3-embed")
+        self.timeout_s = float(os.getenv("NPU_EMBED_TIMEOUT_S", "3"))
+        self._baseline = None
+        self._session = None
+        logger.info("LLM-embed predictor ready (NPU URL=%s)", self.npu_url)
+
+    async def _get_session(self):
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.timeout_s))
+        return self._session
+
+    @staticmethod
+    def _series_to_text(ce_values):
+        recent = np.asarray(ce_values[-60:], dtype=np.float32) if ce_values else np.zeros(60, dtype=np.float32)
+        if recent.size == 0:
+            recent = np.zeros(1, dtype=np.float32)
+        slope = float(recent[-1] - recent[0]) if recent.size >= 2 else 0.0
+        return (f"CE counts last 60 minutes: mean={float(recent.mean()):.2f}, "
+                f"max={int(recent.max())}, std={float(recent.std()):.2f}, "
+                f"slope={slope:.2f}, nonzero_frac={float((recent > 0).mean()):.2f}")
+
+    async def _embed(self, text):
+        session = await self._get_session()
+        async with session.post(self.npu_url,
+                                 json={"model": self.model_id, "input": text}) as r:
+            r.raise_for_status()
+            payload = await r.json()
+        return np.asarray(payload["data"][0]["embedding"], dtype=np.float32)
+
+    async def predict(self, ce_values):
+        try:
+            if self._baseline is None:
+                self._baseline = await self._embed(self.BASELINE_TEXT)
+            emb = await self._embed(self._series_to_text(ce_values))
+            denom = float(np.linalg.norm(emb) * np.linalg.norm(self._baseline)) + 1e-9
+            cos = float(np.dot(emb, self._baseline) / denom)
+            score = max(0.0, min(1.0, 1.0 - cos))
+        except Exception as e:
+            logger.warning("LLM-embed predict fail: %s", e)
+            score = 0.5
+        return {"anomaly_score": score, "model": "llm_embedding"}
+
+
+@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1})
 @serve.ingress(app)
 class AnomalyEnsemble:
-    def __init__(self, chronos, moirai, xgboost, anomaly_t):
+    def __init__(self, chronos, moirai, xgboost, anomaly_t, llm_embed):
         self.chronos = chronos
         self.moirai = moirai
         self.xgboost = xgboost
         self.anomaly_t = anomaly_t
-        self.weights = {"chronos": 0.25, "moirai": 0.15, "xgboost": 0.35, "anomaly_transformer": 0.25}
+        self.llm_embed = llm_embed
+        # llm_embedding은 검증 전이라 가중치 0 (Phase A — 점수만 로깅).
+        self.weights = {
+            "chronos": 0.25, "moirai": 0.15, "xgboost": 0.35,
+            "anomaly_transformer": 0.25, "llm_embedding": 0.0,
+        }
         self.servers = ["vmgnode18", "vmgnode23", "vmgnode26", "vmgnode30"]
 
     @app.get("/health")
@@ -282,6 +351,7 @@ class AnomalyEnsemble:
             self.moirai.predict.remote(ce_values),
             self.xgboost.predict.remote(xgb_features),
             self.anomaly_t.predict.remote(ce_values),
+            self.llm_embed.predict.remote(ce_values),
         )
         scores = {}
         weighted_sum = 0.0
@@ -302,4 +372,5 @@ chronos = ChronosPredictor.bind()
 moirai = MOIRAIPredictor.bind()
 xgboost = XGBoostPredictor.bind()
 anomaly_t = AnomalyTransformerPredictor.bind()
-ensemble = AnomalyEnsemble.bind(chronos, moirai, xgboost, anomaly_t)
+llm_embed = LLMEmbeddingAnomalyPredictor.bind()
+ensemble = AnomalyEnsemble.bind(chronos, moirai, xgboost, anomaly_t, llm_embed)
