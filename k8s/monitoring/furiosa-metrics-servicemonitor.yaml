@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: furiosa-metrics-exporter
+  namespace: furiosa-system
+  labels:
+    release: monitoring            # kube-prometheus-stack 의 Prometheus.spec.serviceMonitorSelector 매칭
+    app.kubernetes.io/name: furiosa-metrics-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: furiosa-metrics-exporter
+  endpoints:
+  - port: metrics                  # Service 의 named port; 없으면 targetPort 직접
+    path: /metrics
+    interval: 15s
+    scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+    - furiosa-system

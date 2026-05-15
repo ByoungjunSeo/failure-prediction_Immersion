@@ -1,0 +1,11 @@
+# smartctl_exporter — 디스크 SMART 메트릭 (모든 노드)
+serviceMonitor:
+  enabled: true
+  extraLabels:
+    release: monitoring        # kube-prometheus-stack 의 Prometheus selector 매칭
+  interval: 60s
+  scrapeTimeout: 30s
+
+# Phase 3 에서 활성화 (Slack 알람 라우팅 같이 설정 후)
+prometheusRules:
+  enabled: false
