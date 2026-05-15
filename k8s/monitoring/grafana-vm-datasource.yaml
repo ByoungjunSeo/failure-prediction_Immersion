@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-victoria-metrics-datasource
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  victoria-metrics.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: VictoriaMetrics
+      type: prometheus            # VM 은 Prometheus API 호환
+      uid: victoria-metrics
+      url: http://victoria-metrics-svc.failure-prediction:8428
+      access: proxy
+      isDefault: false
+      jsonData:
+        httpMethod: POST
+        timeInterval: 30s
+      editable: false

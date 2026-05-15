@@ -18,9 +18,18 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="HPC Memory Failure Prediction API (K8s)")
 VM_URL = os.getenv("VICTORIA_METRICS_URL", "http://victoria-metrics-svc.failure-prediction:8428")
+PROM_URL = os.getenv(
+    "PROMETHEUS_URL",
+    "http://monitoring-kube-prometheus-prometheus.monitoring:9090",
+)
+
+# 자기-모니터링 대상 5 노드. instance 라벨(node-exporter)이 IP:9100 형식이라 매핑 보유.
+SELF_NODES = ["node1", "node2", "node3", "node4", "node5"]
+SELF_NODE_INSTANCE = {f"node{i}": f"10.100.230.{129 + i}:9100"
+                      for i in range(1, 6)}
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 2, "num_gpus": 0.3},
+@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1, "num_gpus": 0.3},
                   health_check_period_s=30, health_check_timeout_s=10)
 class ChronosPredictor:
     def __init__(self):
@@ -51,7 +60,7 @@ class ChronosPredictor:
         return {"anomaly_score": score, "model": "chronos"}
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 2, "num_gpus": 0.3},
+@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1, "num_gpus": 0.3},
                   health_check_period_s=30, health_check_timeout_s=10)
 class MOIRAIPredictor:
     def __init__(self):
@@ -84,7 +93,7 @@ class MOIRAIPredictor:
         return {"anomaly_score": score, "model": "moirai"}
 
 
-@serve.deployment(num_replicas=2, ray_actor_options={"num_cpus": 2},
+@serve.deployment(num_replicas=2, ray_actor_options={"num_cpus": 1},
                   health_check_period_s=30, health_check_timeout_s=10)
 class XGBoostPredictor:
     def __init__(self):
@@ -112,7 +121,7 @@ class XGBoostPredictor:
         return {"anomaly_score": prob, "model": "xgboost"}
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 2, "num_gpus": 0.1},
+@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1, "num_gpus": 0.1},
                   health_check_period_s=30, health_check_timeout_s=10)
 class AnomalyTransformerPredictor:
     def __init__(self):
@@ -198,6 +207,49 @@ def _get_ce_values(server_id, window_minutes=4320):
     except Exception as e:
         logger.warning("CE query failed for %s: %s", server_id, e)
     return [0.0] * 100
+
+
+def _prom_query_range(query, start, end, step="60s", timeout=10):
+    """PromQL range query, returns list of (timestamp, value) per series."""
+    import requests
+    try:
+        r = requests.get(f"{PROM_URL}/api/v1/query_range",
+                         params={"query": query, "start": start, "end": end, "step": step},
+                         timeout=timeout)
+        return r.json().get("data", {}).get("result", [])
+    except Exception as e:
+        logger.warning("Prom range query failed: %s", e)
+        return []
+
+
+def _prom_query(query, timeout=5):
+    """PromQL instant query, returns single float (first series) or None."""
+    import requests
+    try:
+        r = requests.get(f"{PROM_URL}/api/v1/query",
+                         params={"query": query}, timeout=timeout)
+        res = r.json().get("data", {}).get("result", [])
+        if res:
+            return float(res[0]["value"][1])
+    except Exception as e:
+        logger.warning("Prom query failed: %s", e)
+    return None
+
+
+def _get_node_cpu_series(node_name, window_minutes=60):
+    """노드의 CPU 사용률 시계열(0.0~1.0) 반환. 1분 간격, length=window_minutes."""
+    import time
+    inst = SELF_NODE_INSTANCE.get(node_name)
+    if not inst:
+        return [0.0] * window_minutes
+    now = int(time.time())
+    # mode!="idle" 합 ÷ 전체 = 사용률. instance 매칭으로 한 노드만.
+    query = (f'1 - avg by(instance)(rate(node_cpu_seconds_total'
+             f'{{instance="{inst}",mode="idle"}}[1m]))')
+    res = _prom_query_range(query, now - window_minutes * 60, now, "60s")
+    if res and "values" in res[0]:
+        return [float(v[1]) for v in res[0]["values"]]
+    return [0.0] * window_minutes
 
 
 def _compute_xgb_features(ce_values):
@@ -318,17 +370,30 @@ class AnomalyEnsemble:
         self.xgboost = xgboost
         self.anomaly_t = anomaly_t
         self.llm_embed = llm_embed
-        # llm_embedding은 검증 전이라 가중치 0 (Phase A — 점수만 로깅).
+        # ESXi 추론 — 기존 4 predictor 가중치 (llm_embedding은 Phase A 로깅만).
         self.weights = {
             "chronos": 0.25, "moirai": 0.15, "xgboost": 0.35,
             "anomaly_transformer": 0.25, "llm_embedding": 0.0,
         }
+        # 노드 self-monitoring 가중치 — XGBoost는 노드용 학습 모델 없어 0 (dummy).
+        # 시계열 predictor들에 가중치 재배분, llm_embedding 검증 가중치 부여 시작.
+        self.weights_node = {
+            "chronos": 0.30, "moirai": 0.25,
+            "anomaly_transformer": 0.30, "llm_embedding": 0.15,
+            "xgboost": 0.0,
+        }
         self.servers = ["vmgnode18", "vmgnode23", "vmgnode26", "vmgnode30"]
+        self.nodes = list(SELF_NODES)
 
     @app.get("/health")
     async def health(self):
-        return {"status": "healthy", "models": list(self.weights.keys()), "platform": "k8s-ray-serve-gpu"}
+        return {"status": "healthy",
+                "models": list(self.weights.keys()),
+                "esxi_targets": self.servers,
+                "node_targets": self.nodes,
+                "platform": "k8s-ray-serve-gpu+npu"}
 
+    # ---- ESXi 추론 (기존) ----
     @app.get("/predict/all")
     async def predict_all(self):
         predictions = []
@@ -339,9 +404,33 @@ class AnomalyEnsemble:
                 "warning_count": sum(1 for p in predictions if p["risk_level"] == "WARNING"),
                 "critical_count": sum(1 for p in predictions if p["risk_level"] == "CRITICAL")}
 
+    @app.get("/predict/esxi/all")
+    async def predict_esxi_all(self):
+        return await self.predict_all()
+
     @app.get("/predict/{server_id}")
     async def predict(self, server_id: str):
         return await self._predict_single(server_id)
+
+    @app.get("/predict/esxi/{server_id}")
+    async def predict_esxi(self, server_id: str):
+        return await self._predict_single(server_id)
+
+    # ---- 신규 5 노드 self-monitoring 추론 ----
+    @app.get("/predict/node/all")
+    async def predict_node_all(self):
+        predictions = []
+        for n in self.nodes:
+            r = await self._predict_node_single(n)
+            predictions.append(r)
+        return {"predictions": predictions, "total": len(predictions),
+                "target_type": "node",
+                "warning_count": sum(1 for p in predictions if p["risk_level"] == "WARNING"),
+                "critical_count": sum(1 for p in predictions if p["risk_level"] == "CRITICAL")}
+
+    @app.get("/predict/node/{node_name}")
+    async def predict_node(self, node_name: str):
+        return await self._predict_node_single(node_name)
 
     async def _predict_single(self, server_id):
         ce_values = _get_ce_values(server_id)
@@ -361,6 +450,32 @@ class AnomalyEnsemble:
         risk = "CRITICAL" if weighted_sum >= 0.85 else "WARNING" if weighted_sum >= 0.65 else "NORMAL" if weighted_sum > 0.30 else "RECOVERY"
         return {"server_id": server_id, "failure_probability": round(weighted_sum, 4),
                 "risk_level": risk, "model_scores": scores}
+
+    async def _predict_node_single(self, node_name):
+        """노드 자원사용률 기반 추론. 첫 단계는 CPU usage 시계열을 모든
+        시계열 predictor에 전달, XGBoost는 dummy(weight 0)."""
+        if node_name not in SELF_NODE_INSTANCE:
+            return {"node": node_name, "error": "unknown node"}
+        cpu_series = _get_node_cpu_series(node_name, 60)   # 60분, 1-min step
+        results = await asyncio.gather(
+            self.chronos.predict.remote(cpu_series),
+            self.moirai.predict.remote(cpu_series),
+            self.xgboost.predict.remote({}),               # 노드용 학습 모델 없음 — dummy
+            self.anomaly_t.predict.remote(cpu_series),
+            self.llm_embed.predict.remote(cpu_series),
+        )
+        scores = {}
+        weighted_sum = 0.0
+        for r in results:
+            scores[r["model"]] = r["anomaly_score"]
+            weighted_sum += self.weights_node.get(r["model"], 0) * r["anomaly_score"]
+        risk = ("CRITICAL" if weighted_sum >= 0.85 else
+                "WARNING"  if weighted_sum >= 0.65 else
+                "NORMAL"   if weighted_sum >  0.30 else
+                "RECOVERY")
+        return {"node": node_name, "failure_probability": round(weighted_sum, 4),
+                "risk_level": risk, "model_scores": scores,
+                "cpu_used_pct_last": round(cpu_series[-1] * 100, 2) if cpu_series else None}
 
     @app.get("/metrics")
     async def metrics(self):

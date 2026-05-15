@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: self-pred-push
+  namespace: failure-prediction
+  labels:
+    app: self-pred-push
+spec:
+  schedule: "* * * * *"               # 1분 주기 (K8s CronJob 최소)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: pusher
+            image: 10.100.230.130:5000/failure-pred:gpu-latest
+            imagePullPolicy: IfNotPresent
+            command: ["python", "-c"]
+            args:
+            - |
+              """Pull /predict/node/all + /predict/esxi/all → push 9 타깃 점수 to VictoriaMetrics."""
+              import os, time, logging, requests
+
+              logging.basicConfig(level=logging.INFO)
+              log = logging.getLogger("self-pred-push")
+
+              API_URL = os.environ.get("API_URL", "http://failure-pred-api.failure-prediction:8000")
+              VM_URL  = os.environ.get("VM_URL",  "http://victoria-metrics-svc.failure-prediction:8428")
+
+              RISK_LEVEL = {"RECOVERY": 0, "NORMAL": 1, "WARNING": 2, "CRITICAL": 3}
+
+              def fetch_predictions(path):
+                  r = requests.get(f"{API_URL}{path}", timeout=60)
+                  r.raise_for_status()
+                  return r.json().get("predictions", [])
+
+              def emit_lines(preds, target_type):
+                  out = []
+                  id_key = "node" if target_type == "node" else "server_id"
+                  for p in preds:
+                      tid = p.get(id_key, "?")
+                      score = p.get("failure_probability", 0.0)
+                      risk  = RISK_LEVEL.get(p.get("risk_level", "NORMAL"), 1)
+                      out.append(
+                          f'failure_pred_score{{target_id="{tid}",target_type="{target_type}"}} {score}'
+                      )
+                      out.append(
+                          f'failure_pred_risk_level{{target_id="{tid}",target_type="{target_type}"}} {risk}'
+                      )
+                      for m, s in (p.get("model_scores") or {}).items():
+                          out.append(
+                              f'failure_pred_model_score{{target_id="{tid}",target_type="{target_type}",model="{m}"}} {s}'
+                          )
+                  return out
+
+              metrics = []
+              try:
+                  metrics.extend(emit_lines(fetch_predictions("/predict/node/all"), "node"))
+                  log.info("nodes ok")
+              except Exception as e:
+                  log.warning("node fetch failed: %s", e)
+              try:
+                  metrics.extend(emit_lines(fetch_predictions("/predict/esxi/all"), "esxi"))
+                  log.info("esxi ok")
+              except Exception as e:
+                  log.warning("esxi fetch failed: %s", e)
+
+              if not metrics:
+                  log.error("no metrics to push — bailing")
+                  raise SystemExit(1)
+
+              body = "\n".join(metrics) + "\n"
+              resp = requests.post(
+                  f"{VM_URL}/api/v1/import/prometheus",
+                  data=body,
+                  headers={"Content-Type": "text/plain"},
+                  timeout=15,
+              )
+              resp.raise_for_status()
+              log.info("pushed %d metric lines (status=%d)", len(metrics), resp.status_code)
+            env:
+            - {name: API_URL, value: "http://failure-pred-api.failure-prediction:8000"}
+            - {name: VM_URL,  value: "http://victoria-metrics-svc.failure-prediction:8428"}
