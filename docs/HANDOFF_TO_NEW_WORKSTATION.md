@@ -95,7 +95,7 @@ K8s v1.35.4, containerd 2.2.3. 모든 노드에 2.7TB SATA SSD `/dev/sdb`(Longho
 
 ## 새 워크스테이션 정보 + 첫 작업
 
-- 호스트: **10.100.230.103**, 계정 **mlcommons**, 작업 디렉토리 `/mlcommons_cm/failure_prediction`
+- 호스트: **10.100.250.103**, 계정 **mlcommons**, 작업 디렉토리 `/mlcommons_cm/failure_prediction`
 - 기존 워크스테이션: 10.100.230.6 (node1 of OLD cluster = 신규 클러스터 master 와 IP 다름), root 계정, `/opt/failure_prediction`
 - mlcommons 계정이므로 sudo 필요할 수 있음
 
