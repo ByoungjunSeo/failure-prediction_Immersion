@@ -63,11 +63,13 @@ spec:
                   log.info("nodes ok")
               except Exception as e:
                   log.warning("node fetch failed: %s", e)
-              try:
-                  metrics.extend(emit_lines(fetch_predictions("/predict/esxi/all"), "esxi"))
-                  log.info("esxi ok")
-              except Exception as e:
-                  log.warning("esxi fetch failed: %s", e)
+              # ESXi 추론 비활성 — CronJob suspend 와 함께 호출 라인 제거 (2026-05-18).
+              # /predict/esxi/* 엔드포인트와 코드는 유지(수동 호출 가능). 복귀 필요 시 주석 해제.
+              # try:
+              #     metrics.extend(emit_lines(fetch_predictions("/predict/esxi/all"), "esxi"))
+              #     log.info("esxi ok")
+              # except Exception as e:
+              #     log.warning("esxi fetch failed: %s", e)
 
               if not metrics:
                   log.error("no metrics to push — bailing")

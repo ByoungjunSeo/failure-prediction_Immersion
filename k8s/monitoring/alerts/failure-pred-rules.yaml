@@ -1,0 +1,110 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: failure-pred-rules
+  namespace: monitoring
+  labels:
+    release: monitoring        # kube-prometheus-stack 의 ruleSelector 매칭
+    app: failure-prediction
+spec:
+  groups:
+  # ── self-pred-push 파이프라인 헬스 ────────────────────────────────────
+  # NOTE: failure_pred_score 자체에 대한 임계치 알람은 VictoriaMetrics 에 데이터가
+  #       쌓이므로 vmalert 가 평가 (k8s/monitoring/alerts/vmalert-score-rules.yaml).
+  - name: failure-pred-pipeline
+    interval: 1m
+    rules:
+    - alert: SelfPredPushStalled
+      expr: time() - kube_cronjob_status_last_schedule_time{cronjob="self-pred-push"} > 300
+      for: 2m
+      labels:
+        severity: warning
+        category: failure-prediction
+      annotations:
+        summary: "self-pred-push CronJob 5분 이상 미실행"
+        description: "kubectl -n failure-prediction get cronjob self-pred-push / get pods -l job-name 으로 점검"
+
+    - alert: SelfPredPushJobFailing
+      expr: kube_job_failed{job_name=~"self-pred-push-.*"} > 0
+      for: 5m
+      labels:
+        severity: warning
+        category: failure-prediction
+      annotations:
+        summary: "self-pred-push Job 실패 ({{ $labels.job_name }})"
+
+  # ── GPU 하드웨어 ──────────────────────────────────────────────────────
+  - name: failure-pred-gpu
+    interval: 1m
+    rules:
+    - alert: GpuTempCritical
+      expr: DCGM_FI_DEV_GPU_TEMP > 90
+      for: 3m
+      labels: {severity: critical, category: gpu}
+      annotations:
+        summary: "GPU {{ $labels.Hostname }} 온도 CRITICAL ({{ $value }}°C)"
+
+    - alert: GpuTempWarning
+      expr: DCGM_FI_DEV_GPU_TEMP > 80
+      for: 5m
+      labels: {severity: warning, category: gpu}
+      annotations:
+        summary: "GPU {{ $labels.Hostname }} 온도 WARNING ({{ $value }}°C)"
+
+    - alert: GpuEccDoubleBitError
+      expr: increase(DCGM_FI_DEV_ECC_DBE_VOL_TOTAL[10m]) > 0
+      for: 1m
+      labels: {severity: critical, category: gpu}
+      annotations:
+        summary: "GPU {{ $labels.Hostname }} ECC DBE 발생 ({{ $value }}건/10m)"
+        description: "복구 불가 메모리 에러. 즉시 워크로드 격리 검토."
+
+  # ── NPU 하드웨어 ──────────────────────────────────────────────────────
+  - name: failure-pred-npu
+    interval: 1m
+    rules:
+    - alert: NpuDown
+      expr: furiosa_npu_alive == 0
+      for: 2m
+      labels: {severity: critical, category: npu}
+      annotations:
+        summary: "Furiosa NPU {{ $labels.hostname }}/{{ $labels.device }} DOWN"
+
+    - alert: NpuTempCritical
+      expr: furiosa_npu_hw_temperature{label="peak"} > 85
+      for: 3m
+      labels: {severity: critical, category: npu}
+      annotations:
+        summary: "NPU {{ $labels.hostname }} 온도 CRITICAL ({{ $value }}°C)"
+
+  # ── 디스크 SMART ──────────────────────────────────────────────────────
+  - name: failure-pred-disk
+    interval: 5m
+    rules:
+    - alert: SmartMediaError
+      expr: smartctl_device_media_errors > 0
+      for: 5m
+      labels: {severity: critical, category: disk}
+      annotations:
+        summary: "{{ $labels.instance }} {{ $labels.device }} ({{ $labels.model_name }}) 미디어 에러 {{ $value }}건"
+
+    - alert: SmartCriticalWarning
+      expr: smartctl_device_critical_warning > 0
+      for: 5m
+      labels: {severity: critical, category: disk}
+      annotations:
+        summary: "{{ $labels.instance }} {{ $labels.device }} SMART critical warning"
+
+    - alert: SmartHighReallocated
+      expr: smartctl_device_attribute{attribute_name="Reallocated_Sector_Ct",attribute_value_type="raw"} > 100
+      for: 30m
+      labels: {severity: warning, category: disk}
+      annotations:
+        summary: "{{ $labels.device }} 재할당 섹터 {{ $value }} (디스크 노후)"
+
+    - alert: SmartLifetimeLow
+      expr: smartctl_device_attribute{attribute_name=~"Percent_Lifetime_Remain|Wear_Leveling_Count",attribute_value_type="value"} < 20
+      for: 1h
+      labels: {severity: warning, category: disk}
+      annotations:
+        summary: "{{ $labels.device }} 수명 잔여 {{ $value }}% — 교체 검토"

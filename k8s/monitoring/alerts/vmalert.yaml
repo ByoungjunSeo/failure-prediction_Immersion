@@ -1,0 +1,94 @@
+# vmalert — VictoriaMetrics 의 score 데이터를 평가해서 Alertmanager 로 알람
+# (kube-prometheus-stack 의 Prometheus 는 VM 데이터를 못 봄)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules
+  namespace: failure-prediction
+data:
+  failure-pred-score.yaml: |
+    groups:
+    - name: failure-pred-score
+      interval: 1m
+      rules:
+      - alert: FailurePredCritical
+        expr: failure_pred_score >= 0.85
+        for: 5m
+        labels:
+          severity: critical
+          category: failure-prediction
+        annotations:
+          summary: "{{ $labels.target_type }}/{{ $labels.target_id }} 장애 위험 CRITICAL ({{ $value | printf \"%.3f\" }})"
+          description: "5분 이상 score ≥ 0.85 — 즉시 점검 필요. Grafana http://10.100.230.130:31300/d/ai-pred-scores"
+
+      - alert: FailurePredWarning
+        expr: failure_pred_score >= 0.65 < 0.85
+        for: 10m
+        labels:
+          severity: warning
+          category: failure-prediction
+        annotations:
+          summary: "{{ $labels.target_type }}/{{ $labels.target_id }} 장애 위험 WARNING ({{ $value | printf \"%.3f\" }})"
+          description: "10분 이상 score 0.65~0.85 — 트렌드 확인."
+
+      - alert: FailurePredRising
+        expr: deriv(failure_pred_score[15m]) > 0.01
+        for: 15m
+        labels:
+          severity: warning
+          category: failure-prediction
+        annotations:
+          summary: "{{ $labels.target_type }}/{{ $labels.target_id }} 위험도 지속 상승 (deriv={{ $value | printf \"%.4f\"}}/s)"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: failure-prediction
+  labels: {app: vmalert}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: vmalert}
+  template:
+    metadata:
+      labels: {app: vmalert}
+    spec:
+      containers:
+      - name: vmalert
+        image: victoriametrics/vmalert:v1.108.0
+        args:
+        - "--datasource.url=http://victoria-metrics-svc.failure-prediction:8428"
+        - "--notifier.url=http://monitoring-kube-prometheus-alertmanager.monitoring:9093"
+        - "--remoteWrite.url=http://victoria-metrics-svc.failure-prediction:8428"
+        - "--remoteRead.url=http://victoria-metrics-svc.failure-prediction:8428"
+        - "--rule=/etc/vmalert/rules/*.yaml"
+        - "--evaluationInterval=60s"
+        - "--external.label=source=vmalert"
+        # AlertmanagerConfig (monitoring NS) 가 implicit 으로 namespace=monitoring matcher 를
+        # 붙이므로, vmalert 발사 알람에도 같은 라벨을 외부에서 주입해서 라우팅 매칭시킨다.
+        - "--external.label=namespace=monitoring"
+        ports:
+        - {containerPort: 8880, name: http}
+        readinessProbe:
+          httpGet: {path: /-/healthy, port: 8880}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits: {cpu: "500m", memory: 256Mi}
+          requests: {cpu: "100m", memory: 64Mi}
+        volumeMounts:
+        - {name: rules, mountPath: /etc/vmalert/rules}
+      volumes:
+      - name: rules
+        configMap: {name: vmalert-rules}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: failure-prediction
+spec:
+  selector: {app: vmalert}
+  ports:
+  - {port: 8880, targetPort: 8880, name: http}

@@ -1,0 +1,58 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: failure-pred-slack
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  route:
+    receiver: slack-warning
+    groupBy: ["alertname", "target_id", "category"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    matchers:
+    - {name: category, matchType: "=~", value: "failure-prediction|gpu|npu|disk"}
+    routes:
+    - receiver: slack-critical
+      matchers:
+      - {name: severity, value: critical}
+      groupWait: 10s
+      repeatInterval: 1h
+    - receiver: slack-warning
+      matchers:
+      - {name: severity, value: warning}
+
+  receivers:
+  - name: slack-warning
+    slackConfigs:
+    - apiURL:
+        name: slack-secret
+        key: webhook-url
+      channel: "#failure-pred"
+      sendResolved: true
+      iconEmoji: ":warning:"
+      title: "[WARNING] {{ .GroupLabels.alertname }} — {{ .GroupLabels.target_id }}"
+      text: |-
+        {{ range .Alerts }}
+        *{{ .Annotations.summary }}*
+        {{ .Annotations.description }}
+        labels: {{ range .Labels.SortedPairs }}`{{ .Name }}={{ .Value }}` {{ end }}
+        {{ end }}
+
+  - name: slack-critical
+    slackConfigs:
+    - apiURL:
+        name: slack-secret
+        key: webhook-url
+      channel: "#failure-pred-critical"
+      sendResolved: true
+      iconEmoji: ":rotating_light:"
+      title: "[CRITICAL] {{ .GroupLabels.alertname }} — {{ .GroupLabels.target_id }}"
+      text: |-
+        {{ range .Alerts }}
+        :rotating_light: *{{ .Annotations.summary }}*
+        {{ .Annotations.description }}
+        labels: {{ range .Labels.SortedPairs }}`{{ .Name }}={{ .Value }}` {{ end }}
+        {{ end }}

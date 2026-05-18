@@ -3,12 +3,12 @@
   "editable": true,
   "graphTooltip": 1,
   "id": null,
-  "title": "AI 장애예측 점수 (5 노드 + 4 ESXi)",
+  "title": "AI 장애예측 점수 (5 노드 self-monitoring)",
   "uid": "ai-pred-scores",
-  "tags": ["ai", "ensemble", "failure-prediction"],
+  "tags": ["ai", "ensemble", "failure-prediction", "self-monitoring"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {"from": "now-6h", "to": "now"},
   "templating": {"list": []},
@@ -16,12 +16,12 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "현재 위험도 (target 별, weighted sum)",
+      "title": "현재 위험도 (5 노드)",
       "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
       "datasource": "victoria-metrics",
       "targets": [{
-        "expr": "failure_pred_score",
-        "legendFormat": "{{target_type}}/{{target_id}}",
+        "expr": "failure_pred_score{target_type=\"node\"}",
+        "legendFormat": "{{target_id}}",
         "instant": true
       }],
       "fieldConfig": {"defaults": {
@@ -55,29 +55,13 @@
     },
     {
       "id": 3,
-      "type": "timeseries",
-      "title": "ESXi 4대 — failure_pred_score 추세",
+      "type": "state-timeline",
+      "title": "위험 상태 타임라인 (RECOVERY=0 / NORMAL=1 / WARNING=2 / CRITICAL=3)",
       "gridPos": {"h": 9, "w": 12, "x": 12, "y": 6},
       "datasource": "victoria-metrics",
       "targets": [{
-        "expr": "failure_pred_score{target_type=\"esxi\"}",
+        "expr": "failure_pred_risk_level{target_type=\"node\"}",
         "legendFormat": "{{target_id}}"
-      }],
-      "fieldConfig": {"defaults": {
-        "unit": "percentunit",
-        "min": 0, "max": 1,
-        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
-      }}
-    },
-    {
-      "id": 4,
-      "type": "state-timeline",
-      "title": "위험 상태 타임라인 (RECOVERY=0 / NORMAL=1 / WARNING=2 / CRITICAL=3)",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 15},
-      "datasource": "victoria-metrics",
-      "targets": [{
-        "expr": "failure_pred_risk_level",
-        "legendFormat": "{{target_type}}/{{target_id}}"
       }],
       "fieldConfig": {"defaults": {
         "thresholds": {"mode": "absolute", "steps": [
@@ -97,8 +81,8 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "node1 — model breakdown",
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 23},
+      "title": "node1 (control-plane + GPU) — model breakdown",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 15},
       "datasource": "victoria-metrics",
       "targets": [{
         "expr": "failure_pred_model_score{target_type=\"node\",target_id=\"node1\"}",
@@ -109,11 +93,11 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "node5 (NPU) — model breakdown",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 23},
+      "title": "node4 (RTX 5080) — model breakdown",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 15},
       "datasource": "victoria-metrics",
       "targets": [{
-        "expr": "failure_pred_model_score{target_type=\"node\",target_id=\"node5\"}",
+        "expr": "failure_pred_model_score{target_type=\"node\",target_id=\"node4\"}",
         "legendFormat": "{{model}}"
       }],
       "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}
@@ -121,11 +105,11 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "vmgnode26 (ESXi) — model breakdown",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 23},
+      "title": "node5 (NPU) — model breakdown",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 15},
       "datasource": "victoria-metrics",
       "targets": [{
-        "expr": "failure_pred_model_score{target_type=\"esxi\",target_id=\"vmgnode26\"}",
+        "expr": "failure_pred_model_score{target_type=\"node\",target_id=\"node5\"}",
         "legendFormat": "{{model}}"
       }],
       "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}

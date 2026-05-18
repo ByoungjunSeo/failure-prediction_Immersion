@@ -4,6 +4,7 @@ metadata:
   name: esxi-edac
   namespace: failure-prediction
 spec:
+  suspend: true                    # 2026-05-18: ESXi 모니터링 비활성 (self-monitoring 전환)
   schedule: "* * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
