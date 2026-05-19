@@ -30,31 +30,21 @@ K8s v1.35.4, containerd 2.2.3. 모든 노드에 2.7TB SATA SSD `/dev/sdb`(Longho
 - **Phase 2** (`e47f92a`) — ensemble_app.py 확장 (`/predict/node/*` 5 노드), self-pred-push CronJob(1분), VM datasource, AI 예측 점수 대시보드
 - **Phase 0c** — NPU 모델 0.6B → 4B 업그레이드 (embed dim 1024→2560, DRAM 1.5GB→8GB)
 
-### Phase 3 in_progress (`27d5b3b` 마지막 WIP push)
+### Phase 3 완료 (2026-05-18)
 
-진행된 부분:
 - `k8s/monitoring/alerts/failure-pred-rules.yaml` PrometheusRule (4 group / 9 hardware+pipeline rules) — 클러스터 apply 완료
-- `k8s/monitoring/alerts/alertmanager-slack.yaml` AlertmanagerConfig (slack-warning, slack-critical 두 receiver) — apply 완료
-- `k8s/monitoring/alerts/vmalert.yaml` vmalert Deployment (score 기반 3 rule) — apply 완료
-- ESXi CronJob 4개 (esxi-collector/edac/response, ce-simulator) **클러스터에서 suspend=true 패치 완료**
-  - 단 yaml 파일은 esxi-edac.yaml 만 suspend 추가됨. 나머지 3개는 cluster patch만 있음
-- self-pred-push CronJob에서 `/predict/esxi/all` 호출 제거 (코드 + apply 모두 완료, "pushed 35 metric lines" 확인)
+- `k8s/monitoring/alerts/alertmanager-slack.yaml` AlertmanagerConfig (slack-warning, slack-critical 두 receiver) — apply 완료, 채널: `#액침서버_장애예측_알람`
+- `k8s/monitoring/alerts/vmalert.yaml` vmalert Deployment (score 기반 3 rule, `--external.label=namespace=monitoring`) — apply 완료
+- Slack webhook 실 URL 양 NS(monitoring, failure-prediction) secret 적용 완료
+- ESXi CronJob 4개 (esxi-collector/edac/response, ce-simulator) **suspend=true** — yaml + 클러스터 모두 반영
+- self-pred-push CronJob에서 `/predict/esxi/all` 호출 제거 완료
 - AI 예측 점수 대시보드 node-only 로 재구성
 
-남은 작업:
-1. **Slack webhook 실 URL 적용** — 현재 placeholder. 다음 명령으로 양 NS 동시 업데이트:
-   ```bash
-   for ns in monitoring failure-prediction; do
-     kubectl -n $ns create secret generic slack-secret \
-       --from-literal=webhook-url='https://hooks.slack.com/services/실제URL' \
-       --dry-run=client -o yaml | kubectl apply -f -
-   done
-   ```
-2. **알람 종단 검증** — 현재 라우팅 미해결 상태로 중단. 마지막 시점에 vmalert 알람이 AlertmanagerConfig 의 implicit `namespace=monitoring` matcher 와 매칭 안 돼 default `null` receiver 로 빠짐. 수정안:
-   - `vmalert.yaml` 에 `--external.label=namespace=monitoring` 추가 (파일에는 이미 반영됨, 클러스터에는 apply 완료, 다만 그 후 라우팅 검증 미완료)
-   - test-node score=0.9 push → Pending → Firing 까지는 확인됨 (`vmalert /api/v1/alerts` 에서 state=firing 확인). receivers=null 인 게 미해결 포인트.
-3. **남은 ESXi yaml 정리** — `esxi-collector.yaml`, `esxi-response.yaml` 은 git 에 없음 (cluster only). 필요하면 export 해서 추가하거나 그대로 둠.
-4. **GPU 4대 균등 분산** — 별도 작업. predictor replicas 4, ray_actor_options 조정. RayCluster worker 수 증설 필요.
+**종단 검증 결과 (2026-05-18):**
+- vmalert→Alertmanager: `alerts_sent_total=69, send_errors=0`
+- Alertmanager→Slack: `notifications_total{slack}=6, failed{slack}=0`
+- Slack `#액침서버_장애예측_알람` 채널에서 CRITICAL 알림 수신 확인
+- null receiver 문제: `--external.label=namespace=monitoring`으로 해결 (operator가 AlertmanagerConfig에 implicit namespace matcher 주입하는 것이 원인이었음)
 
 ### 핵심 진단 기록
 - **vmalert 의 올바른 API path**: `/api/v1/rules`, `/api/v1/alerts`. `/api/v1/groups` 는 Prometheus 용이고 vmalert 가 거부함 ("unsupported path requested") — 이전에 빈 응답 → JSON decode 실패로 가짜 traceback 만들었음. 운영 영향 없음.
@@ -80,15 +70,13 @@ K8s v1.35.4, containerd 2.2.3. 모든 노드에 2.7TB SATA SSD `/dev/sdb`(Longho
 
 ## TODO 목록
 
-**in_progress**
-- #21 Phase 3: Alertmanager rules + Slack routing (1~3 위 남은 작업)
-
-**pending (Phase 3 이후)**
+**pending**
 - GPU 4대 균등 분산 (predictor replicas 4 + RayCluster worker 4)
 - Registry standalone Pod → Deployment + Longhorn PVC 전환 (정전 회복력)
 - Phase 4 (옵션): 자기-클러스터 데이터로 Chronos/MOIRAI fine-tune 백그라운드 CronJob
 
 **완료**
+- #21 Phase 3: Alertmanager rules + Slack routing — 종단 검증 통과 (2026-05-18)
 - #16~20, #22 (설계 + Phase 0/1/2 + NPU 4B 업그레이드)
 
 ---
