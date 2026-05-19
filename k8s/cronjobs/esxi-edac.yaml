@@ -16,7 +16,7 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: esxi-edac
-            image: 10.100.230.6:5000/failure-pred:cpu-latest
+            image: 10.100.230.130:5000/failure-pred:cpu-latest
             imagePullPolicy: IfNotPresent
             command: ["python", "-c"]
             args:

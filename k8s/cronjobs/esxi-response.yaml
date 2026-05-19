@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: esxi-response
+  namespace: failure-prediction
+spec:
+  suspend: true                    # 2026-05-18: ESXi 모니터링 비활성 (self-monitoring 전환)
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: response
+            image: 10.100.230.130:5000/failure-pred:cpu-latest
+            imagePullPolicy: IfNotPresent
+            command: ["python", "-c"]
+            args:
+            - |
+              import sys, logging, requests
+              sys.path.insert(0, "/app")
+              logging.basicConfig(level=logging.INFO)
+              logger = logging.getLogger("response")
+
+              API_URL = "http://failure-pred-api.failure-prediction:8000"
+              VM_URL = "http://victoria-metrics-svc.failure-prediction:8428"
+
+              try:
+                  resp = requests.get(f"{API_URL}/predict/all", timeout=60)
+                  data = resp.json()
+
+                  prom_lines = []
+                  for pred in data.get("predictions", []):
+                      srv = pred["server_id"]
+                      prob = pred["failure_probability"]
+                      risk = pred["risk_level"]
+                      scores = pred.get("model_scores", {})
+
+                      logger.info("%s: prob=%.4f, risk=%s", srv, prob, risk)
+
+                      prom_lines.append(f'failure_probability{{server="{srv}"}} {prob}')
+                      for model, score in scores.items():
+                          prom_lines.append(f'model_score{{server="{srv}",model="{model}"}} {score}')
+
+                      if risk in ("WARNING", "CRITICAL"):
+                          logger.warning("대응 필요: %s → %s", srv, risk)
+
+                  if prom_lines:
+                      push_data = "\n".join(prom_lines) + "\n"
+                      r = requests.post(f"{VM_URL}/api/v1/import/prometheus",
+                          data=push_data, headers={"Content-Type": "text/plain"}, timeout=10)
+                      logger.info("Push %d prediction metrics: %s", len(prom_lines), r.status_code)
+
+              except Exception as e:
+                  logger.error("실패: %s", e)
+
+              logger.info("완료")

@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: esxi-collector
+  namespace: failure-prediction
+spec:
+  suspend: true                    # 2026-05-18: ESXi 모니터링 비활성 (self-monitoring 전환)
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: collector
+            image: 10.100.230.130:5000/failure-pred:cpu-latest
+            imagePullPolicy: IfNotPresent
+            command: ["python", "-c"]
+            args:
+            - |
+              import sys, os, logging, requests
+              sys.path.insert(0, "/app")
+              logging.basicConfig(level=logging.INFO)
+              logger = logging.getLogger("collector")
+
+              VM_URL = "http://victoria-metrics-svc.failure-prediction:8428"
+              ESXI_PASS = os.getenv("ESXI_PASSWORD", "VMware!0")
+
+              hosts = [
+                  ("vmgnode18", "10.148.148.118"),
+                  ("vmgnode23", "10.148.148.123"),
+                  ("vmgnode26", "10.148.148.126"),
+                  ("vmgnode30", "10.148.148.130"),
+              ]
+
+              lines = []
+              for hid, hip in hosts:
+                  try:
+                      from src.collectors.esxi_collector import EsxiCollector
+                      c = EsxiCollector(host_id=hid, host_ip=hip, username="root", password=ESXI_PASS)
+                      d = c.collect()
+                      lines.append(f'esxi_cpu_usage{{host="{hid}"}} {d.host_metrics.cpu_usage_percent:.2f}')
+                      lines.append(f'esxi_mem_usage{{host="{hid}"}} {d.host_metrics.mem_usage_percent:.2f}')
+                      lines.append(f'esxi_vm_count{{host="{hid}"}} {d.vm_aggregate.vm_count}')
+                  except Exception as e:
+                      logger.warning("ESXi pyVmomi 실패 %s: %s", hid, e)
+
+                  try:
+                      from src.collectors.esxi_ssh_collector import EsxiSshCollector
+                      sc = EsxiSshCollector(host_id=hid, host_ip=hip, username="root", password=ESXI_PASS)
+                      sd = sc.collect()
+                      lines.append(f'esxi_vmkernel_error_cnt{{host="{hid}"}} {sd.error_count}')
+                  except Exception as e:
+                      logger.warning("ESXi SSH 실패 %s: %s", hid, e)
+
+              if lines:
+                  data = "\n".join(lines) + "\n"
+                  resp = requests.post(f"{VM_URL}/api/v1/import/prometheus",
+                      data=data, headers={"Content-Type": "text/plain"}, timeout=10)
+                  logger.info("Push %d metrics (prometheus): %s", len(lines), resp.status_code)
+
+              logger.info("수집 완료")
+            env:
+            - name: ESXI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: esxi-credentials
+                  key: password
+          volumes:
+          - name: servers-config
+            configMap:
+              name: servers-config

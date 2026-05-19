@@ -4,6 +4,7 @@ metadata:
   name: ce-simulator
   namespace: failure-prediction
 spec:
+  suspend: true                    # 2026-05-18: ESXi 모니터링 비활성 (self-monitoring 전환)
   schedule: "* * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -15,7 +16,7 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: ce-simulator
-            image: 10.100.230.6:5000/failure-pred:cpu-latest
+            image: 10.100.230.130:5000/failure-pred:cpu-latest
             imagePullPolicy: IfNotPresent
             command: ["python", "-c"]
             args:
