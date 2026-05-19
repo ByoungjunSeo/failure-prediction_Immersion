@@ -30,7 +30,7 @@ spec:
     - apiURL:
         name: slack-secret
         key: webhook-url
-      channel: "#failure-pred"
+      channel: "#액침서버_장애예측_알람"
       sendResolved: true
       iconEmoji: ":warning:"
       title: "[WARNING] {{ .GroupLabels.alertname }} — {{ .GroupLabels.target_id }}"
@@ -46,7 +46,7 @@ spec:
     - apiURL:
         name: slack-secret
         key: webhook-url
-      channel: "#failure-pred-critical"
+      channel: "#액침서버_장애예측_알람"
       sendResolved: true
       iconEmoji: ":rotating_light:"
       title: "[CRITICAL] {{ .GroupLabels.alertname }} — {{ .GroupLabels.target_id }}"
