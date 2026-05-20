@@ -29,7 +29,8 @@ SELF_NODE_INSTANCE = {f"node{i}": f"10.100.230.{129 + i}:9100"
                       for i in range(1, 6)}
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1, "num_gpus": 0.3},
+@serve.deployment(num_replicas=4, max_replicas_per_node=1,
+                  ray_actor_options={"num_cpus": 1, "num_gpus": 0.25},
                   health_check_period_s=30, health_check_timeout_s=10)
 class ChronosPredictor:
     def __init__(self):
@@ -60,7 +61,8 @@ class ChronosPredictor:
         return {"anomaly_score": score, "model": "chronos"}
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1, "num_gpus": 0.3},
+@serve.deployment(num_replicas=4, max_replicas_per_node=1,
+                  ray_actor_options={"num_cpus": 1, "num_gpus": 0.25},
                   health_check_period_s=30, health_check_timeout_s=10)
 class MOIRAIPredictor:
     def __init__(self):
@@ -121,7 +123,8 @@ class XGBoostPredictor:
         return {"anomaly_score": prob, "model": "xgboost"}
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_cpus": 1, "num_gpus": 0.1},
+@serve.deployment(num_replicas=4, max_replicas_per_node=1,
+                  ray_actor_options={"num_cpus": 1, "num_gpus": 0.10},
                   health_check_period_s=30, health_check_timeout_s=10)
 class AnomalyTransformerPredictor:
     def __init__(self):

@@ -19,7 +19,7 @@ spec:
           operator: Exists
         containers:
         - name: ray-head
-          image: 10.100.230.6:5000/failure-pred:gpu-latest
+          image: 10.100.230.130:5000/failure-pred:gpu-latest
           imagePullPolicy: Always
           env:
           - name: RAY_SERVE_HTTP_HOST
@@ -87,8 +87,80 @@ spec:
           configMap:
             name: xgboost-model
   workerGroupSpecs:
+  # --- GPU workers: node2/node3/node4 에 1개씩 (GPU 1장 점유) ---
+  - groupName: gpu-workers
+    replicas: 3
+    minReplicas: 3
+    maxReplicas: 3
+    rayStartParams:
+      num-cpus: "4"
+      num-gpus: "1"
+    template:
+      spec:
+        nodeSelector:
+          nvidia.com/gpu.present: "true"
+        containers:
+        - name: ray-worker
+          image: 10.100.230.130:5000/failure-pred:gpu-latest
+          imagePullPolicy: Always
+          env:
+          - name: RAY_SERVE_HTTP_HOST
+            value: "0.0.0.0"
+          - name: AT_THRESHOLD
+            value: "2500"
+          ports:
+          - containerPort: 8000
+            name: serve
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          readinessProbe:
+            exec:
+              command:
+              - bash
+              - -c
+              - curl -fs --max-time 5 http://localhost:52365/api/local_raylet_healthz | grep -q success
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command:
+              - bash
+              - -c
+              - curl -fs --max-time 5 http://localhost:52365/api/local_raylet_healthz | grep -q success
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 20
+          volumeMounts:
+          - mountPath: /app/rayserve
+            name: app-code
+          - mountPath: /app/configs
+            name: servers-config
+          - mountPath: /app/models/checkpoints/xgboost_model.json
+            name: xgboost-model
+            subPath: xgboost_model.json
+        volumes:
+        - name: app-code
+          configMap:
+            name: ensemble-app
+        - name: servers-config
+          configMap:
+            name: servers-config
+        - name: xgboost-model
+          configMap:
+            name: xgboost-model
+  # --- CPU workers: XGBoost, LLMEmbed, Ensemble 등 CPU 전용 ---
   - groupName: cpu-workers
-    replicas: 2
+    replicas: 1
     minReplicas: 1
     maxReplicas: 4
     rayStartParams:
@@ -97,7 +169,7 @@ spec:
       spec:
         containers:
         - name: ray-worker
-          image: 10.100.230.6:5000/failure-pred:cpu-latest
+          image: 10.100.230.130:5000/failure-pred:cpu-latest
           env:
           - name: RAY_SERVE_HTTP_HOST
             value: "0.0.0.0"
