@@ -26,7 +26,7 @@ K8s v1.35.4, containerd 2.2.3. 모든 노드에 2.7TB SATA SSD `/dev/sdb`(Longho
 ### Phase 0~2 완료 (GitHub 커밋됨)
 
 - **Phase 0** (`f0d01df`) — Furiosa NPU exporter, smartctl-exporter, DCGM ServiceMonitor, NPU 4B 모델 업그레이드 (PVC 10→20GB)
-- **Phase 1** (`3a2a3db`) — Grafana 3종 대시보드 (Node Exporter Full / DCGM / Furiosa NPU), NodePort 31300 노출
+- **Phase 1** (`3a2a3db`) — Grafana 3종 대시보드 (Node Exporter Full / DCGM / Furiosa NPU), NodePort 31618 노출
 - **Phase 2** (`e47f92a`) — ensemble_app.py 확장 (`/predict/node/*` 5 노드), self-pred-push CronJob(1분), VM datasource, AI 예측 점수 대시보드
 - **Phase 0c** — NPU 모델 0.6B → 4B 업그레이드 (embed dim 1024→2560, DRAM 1.5GB→8GB)
 
@@ -56,14 +56,15 @@ K8s v1.35.4, containerd 2.2.3. 모든 노드에 2.7TB SATA SSD `/dev/sdb`(Longho
 
 | 서비스 | URL | 비고 |
 |---|---|---|
-| Grafana | http://10.100.230.130:**31300** | admin / `eGiVhmpCwSAXIZMLxHkwu9a3v3LS8e4KmYrvIkTb` |
+| Grafana (작업용) | http://10.100.230.130:**31618** | failure-prediction NS, AI 대시보드 포함. admin / `eGiVhmpCwSAXIZMLxHkwu9a3v3LS8e4KmYrvIkTb` |
+| Grafana (기본) | http://10.100.230.130:**31300** | monitoring NS, kube-prometheus-stack 기본 설치분 |
 | Prometheus (in-cluster) | monitoring-kube-prometheus-prometheus.monitoring:9090 | |
 | Alertmanager (in-cluster) | monitoring-kube-prometheus-alertmanager.monitoring:9093 | |
 | VictoriaMetrics | http://10.100.230.130:**30171** (NodePort) | failure-prediction NS, AI 점수 저장소 |
 | Ray Serve API | http://10.100.230.130:**31494** | `/predict/node/all`, `/predict/esxi/all`, `/health` |
 | NPU embedding | http://npu-embed-svc.failure-prediction:8000 | OpenAI 호환 `/v1/embeddings` (Qwen3-Embedding-4B) |
 | vmalert | http://vmalert.failure-prediction:8880 | `/api/v1/rules`, `/api/v1/alerts` |
-| Container Registry | 10.100.230.130:**5000** | hostPath `/home/registry` (13G), standalone Pod — **정전 시 수동 복구 필요** (project_power_outage_state.md 참조) |
+| Container Registry | 10.100.230.130:**5000** | hostPort, hostPath `/home/registry` (13G), standalone Pod — **정전 시 수동 복구 필요** |
 | 구 Grafana | http://10.100.230.72:3000 | datasource 만 신규 VM 가리킴 |
 
 ---
@@ -71,11 +72,11 @@ K8s v1.35.4, containerd 2.2.3. 모든 노드에 2.7TB SATA SSD `/dev/sdb`(Longho
 ## TODO 목록
 
 **pending**
-- GPU 4대 균등 분산 (predictor replicas 4 + RayCluster worker 4)
 - Registry standalone Pod → Deployment + Longhorn PVC 전환 (정전 회복력)
 - Phase 4 (옵션): 자기-클러스터 데이터로 Chronos/MOIRAI fine-tune 백그라운드 CronJob
 
 **완료**
+- GPU 4대 균등 분산 완료 (2026-05-20) — gpu-workers 3 추가, predictor replicas 4 × max_replicas_per_node=1, 노드별 VRAM 확인
 - #21 Phase 3: Alertmanager rules + Slack routing — 종단 검증 통과 (2026-05-18)
 - #16~20, #22 (설계 + Phase 0/1/2 + NPU 4B 업그레이드)
 
@@ -148,8 +149,8 @@ k8s/
     grafana-vm-datasource.yaml
     smartctl-exporter-values.yaml
   rayserve/
-    ensemble_app.py                  (5 predictor, /predict/{esxi,node}/* endpoints)
-    raycluster.yaml                  (head + cpu-workers 3 replica, GPU 1 on head)
+    ensemble_app.py                  (5 predictor × 4 GPU replicas, /predict/{esxi,node}/* endpoints)
+    raycluster.yaml                  (head + gpu-workers 3 + cpu-workers 1, GPU 4대 분산)
 scripts/
   build_npu_artifact.py
   npu_serve_entrypoint.sh
