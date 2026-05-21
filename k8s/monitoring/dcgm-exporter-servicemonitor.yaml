@@ -2,9 +2,9 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: nvidia-dcgm-exporter
-  namespace: gpu-operator
+  namespace: monitoring            # gpu-operator NS에 두면 operator가 삭제함
   labels:
-    release: monitoring          # kube-prometheus-stack Prometheus selector
+    release: monitoring
     app: nvidia-dcgm-exporter
 spec:
   selector:

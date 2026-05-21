@@ -18,7 +18,7 @@
       "type": "stat",
       "title": "현재 위험도 (5 노드)",
       "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
-      "datasource": "victoria-metrics",
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
       "targets": [{
         "expr": "failure_pred_score{target_type=\"node\"}",
         "legendFormat": "{{target_id}}",
@@ -42,7 +42,7 @@
       "type": "timeseries",
       "title": "노드 5대 — failure_pred_score 추세",
       "gridPos": {"h": 9, "w": 12, "x": 0, "y": 6},
-      "datasource": "victoria-metrics",
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
       "targets": [{
         "expr": "failure_pred_score{target_type=\"node\"}",
         "legendFormat": "{{target_id}}"
@@ -58,7 +58,7 @@
       "type": "state-timeline",
       "title": "위험 상태 타임라인 (RECOVERY=0 / NORMAL=1 / WARNING=2 / CRITICAL=3)",
       "gridPos": {"h": 9, "w": 12, "x": 12, "y": 6},
-      "datasource": "victoria-metrics",
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
       "targets": [{
         "expr": "failure_pred_risk_level{target_type=\"node\"}",
         "legendFormat": "{{target_id}}"
@@ -83,7 +83,7 @@
       "type": "timeseries",
       "title": "node1 (control-plane + GPU) — model breakdown",
       "gridPos": {"h": 8, "w": 8, "x": 0, "y": 15},
-      "datasource": "victoria-metrics",
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
       "targets": [{
         "expr": "failure_pred_model_score{target_type=\"node\",target_id=\"node1\"}",
         "legendFormat": "{{model}}"
@@ -95,7 +95,7 @@
       "type": "timeseries",
       "title": "node4 (RTX 5080) — model breakdown",
       "gridPos": {"h": 8, "w": 8, "x": 8, "y": 15},
-      "datasource": "victoria-metrics",
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
       "targets": [{
         "expr": "failure_pred_model_score{target_type=\"node\",target_id=\"node4\"}",
         "legendFormat": "{{model}}"
@@ -107,7 +107,7 @@
       "type": "timeseries",
       "title": "node5 (NPU) — model breakdown",
       "gridPos": {"h": 8, "w": 8, "x": 16, "y": 15},
-      "datasource": "victoria-metrics",
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
       "targets": [{
         "expr": "failure_pred_model_score{target_type=\"node\",target_id=\"node5\"}",
         "legendFormat": "{{model}}"

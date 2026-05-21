@@ -1,0 +1,387 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "title": "클러스터 노드 종합 현황 (Node Overview)",
+  "uid": "node-overview",
+  "tags": ["self-monitoring", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "label": "Node",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(node_uname_info, nodename)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {"text": "All", "value": "$__all"},
+        "sort": 1,
+        "refresh": 1
+      },
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(node_uname_info{nodename=~\"$node\"}, instance)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {"text": "All", "value": "$__all"},
+        "hide": 2,
+        "sort": 1,
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "AI 장애예측",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "현재 위험도",
+      "gridPos": {"h": 5, "w": 24, "x": 0, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
+      "targets": [{
+        "expr": "failure_pred_score{target_type=\"node\",target_id=~\"$node\"}",
+        "legendFormat": "{{target_id}}",
+        "instant": true
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percentunit",
+        "min": 0, "max": 1,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "blue",   "value": null},
+          {"color": "green",  "value": 0.30},
+          {"color": "yellow", "value": 0.65},
+          {"color": "red",    "value": 0.85}
+        ]},
+        "mappings": []
+      }},
+      "options": {"orientation": "horizontal", "colorMode": "background", "graphMode": "area", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "failure_pred_score 추세",
+      "gridPos": {"h": 7, "w": 14, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
+      "targets": [{
+        "expr": "failure_pred_score{target_type=\"node\",target_id=~\"$node\"}",
+        "legendFormat": "{{target_id}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percentunit",
+        "min": 0, "max": 1,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "auto"}
+      }}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "모델별 점수 분해",
+      "gridPos": {"h": 7, "w": 10, "x": 14, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "victoria-metrics"},
+      "targets": [{
+        "expr": "failure_pred_model_score{target_type=\"node\",target_id=~\"$node\"}",
+        "legendFormat": "{{target_id}} {{model}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percentunit",
+        "min": 0, "max": 1,
+        "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 0}
+      }}
+    },
+
+    {
+      "id": 200,
+      "type": "row",
+      "title": "시스템 자원",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 13},
+      "collapsed": false
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "CPU 사용률 (%)",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"$instance\"}[5m]))) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+        "legendFormat": "{{nodename}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}
+      }}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "메모리 사용률 (%)",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "100 * (1 - node_memory_MemAvailable_bytes{instance=~\"$instance\"} / node_memory_MemTotal_bytes{instance=~\"$instance\"}) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+        "legendFormat": "{{nodename}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}
+      }}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "디스크 사용률 (/) (%)",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "100 * (1 - node_filesystem_avail_bytes{instance=~\"$instance\",mountpoint=\"/\",fstype!~\"rootfs|tmpfs\"} / node_filesystem_size_bytes{instance=~\"$instance\",mountpoint=\"/\",fstype!~\"rootfs|tmpfs\"}) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+        "legendFormat": "{{nodename}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}
+      }}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Disk I/O",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by(instance) (rate(node_disk_read_bytes_total{instance=~\"$instance\"}[5m])) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+          "legendFormat": "{{nodename}} read"
+        },
+        {
+          "expr": "sum by(instance) (rate(node_disk_written_bytes_total{instance=~\"$instance\"}[5m])) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+          "legendFormat": "{{nodename}} write"
+        }
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "Bps",
+        "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10}
+      }}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Network I/O",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by(instance) (rate(node_network_receive_bytes_total{instance=~\"$instance\",device!~\"lo|veth.*|cali.*|flannel.*|cni.*|tunl.*\"}[5m])) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+          "legendFormat": "{{nodename}} rx"
+        },
+        {
+          "expr": "sum by(instance) (rate(node_network_transmit_bytes_total{instance=~\"$instance\",device!~\"lo|veth.*|cali.*|flannel.*|cni.*|tunl.*\"}[5m])) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+          "legendFormat": "{{nodename}} tx"
+        }
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "Bps",
+        "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10}
+      }}
+    },
+
+    {
+      "id": 300,
+      "type": "row",
+      "title": "GPU 자원 (node1~4)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 28},
+      "collapsed": false
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "GPU 사용률 (%)",
+      "gridPos": {"h": 7, "w": 6, "x": 0, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "DCGM_FI_DEV_GPU_UTIL{Hostname=~\"$node\"}",
+        "legendFormat": "{{Hostname}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}
+      }}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "GPU 온도 (\u00b0C)",
+      "gridPos": {"h": 7, "w": 6, "x": 6, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "DCGM_FI_DEV_GPU_TEMP{Hostname=~\"$node\"}",
+        "legendFormat": "{{Hostname}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "celsius",
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "red", "value": 85}
+        ]}
+      }}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "GPU 전력 (W)",
+      "gridPos": {"h": 7, "w": 6, "x": 12, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=~\"$node\"}",
+        "legendFormat": "{{Hostname}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "watt",
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+      }}
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "GPU 메모리 (MiB)",
+      "gridPos": {"h": 7, "w": 6, "x": 18, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_FB_USED{Hostname=~\"$node\"}",
+          "legendFormat": "{{Hostname}} used"
+        },
+        {
+          "expr": "DCGM_FI_DEV_FB_USED{Hostname=~\"$node\"} + DCGM_FI_DEV_FB_FREE{Hostname=~\"$node\"} + DCGM_FI_DEV_FB_RESERVED{Hostname=~\"$node\"}",
+          "legendFormat": "{{Hostname}} total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "mbytes",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+        },
+        "overrides": [{
+          "matcher": {"id": "byRegexp", "options": "total"},
+          "properties": [
+            {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}},
+            {"id": "custom.fillOpacity", "value": 0},
+            {"id": "custom.lineWidth", "value": 1}
+          ]
+        }]
+      }
+    },
+
+    {
+      "id": 400,
+      "type": "row",
+      "title": "NPU 자원 (node5)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 36},
+      "collapsed": false
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "NPU 사용률 (%)",
+      "gridPos": {"h": 7, "w": 6, "x": 0, "y": 37},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "avg by(hostname) (furiosa_npu_core_utilization{hostname=~\"$node\"})",
+        "legendFormat": "{{hostname}} avg"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}
+      }}
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "NPU 온도 (\u00b0C)",
+      "gridPos": {"h": 7, "w": 6, "x": 6, "y": 37},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "furiosa_npu_hw_temperature{hostname=~\"$node\"}",
+        "legendFormat": "{{hostname}} {{label}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "celsius",
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "red", "value": 85}
+        ]}
+      }}
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "NPU 전력 (W)",
+      "gridPos": {"h": 7, "w": 6, "x": 12, "y": 37},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "furiosa_npu_hw_power{hostname=~\"$node\"}",
+        "legendFormat": "{{hostname}}"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "watt",
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+      }}
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "NPU 메모리 (DRAM)",
+      "gridPos": {"h": 7, "w": 6, "x": 18, "y": 37},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "furiosa_npu_dram_usage{hostname=~\"$node\"}",
+          "legendFormat": "{{hostname}} used"
+        },
+        {
+          "expr": "furiosa_npu_dram_total{hostname=~\"$node\"}",
+          "legendFormat": "{{hostname}} total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+        },
+        "overrides": [{
+          "matcher": {"id": "byRegexp", "options": "total"},
+          "properties": [
+            {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}},
+            {"id": "custom.fillOpacity", "value": 0},
+            {"id": "custom.lineWidth", "value": 1}
+          ]
+        }]
+      }
+    }
+  ]
+}

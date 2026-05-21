@@ -18,7 +18,7 @@
       "type": "stat",
       "title": "NPU Alive (npu0)",
       "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "furiosa_npu_alive", "legendFormat": "{{device}}"}],
       "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}, "type": "value"}]}}
     },
@@ -27,7 +27,7 @@
       "type": "stat",
       "title": "NPU Temperature (°C)",
       "gridPos": {"h": 4, "w": 5, "x": 4, "y": 0},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {"expr": "furiosa_npu_hw_temperature{label=\"peak\"}", "legendFormat": "peak"},
         {"expr": "furiosa_npu_hw_temperature{label=\"ambient\"}", "legendFormat": "ambient"}
@@ -39,7 +39,7 @@
       "type": "stat",
       "title": "NPU Power (W)",
       "gridPos": {"h": 4, "w": 5, "x": 9, "y": 0},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "furiosa_npu_hw_power", "legendFormat": "{{label}}"}],
       "fieldConfig": {"defaults": {"unit": "watt"}}
     },
@@ -48,7 +48,7 @@
       "type": "stat",
       "title": "DRAM Usage",
       "gridPos": {"h": 4, "w": 5, "x": 14, "y": 0},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {"expr": "furiosa_npu_dram_usage / furiosa_npu_dram_total * 100", "legendFormat": "used %"},
         {"expr": "furiosa_npu_dram_usage", "legendFormat": "bytes"}
@@ -60,7 +60,7 @@
       "type": "stat",
       "title": "DRAM Total",
       "gridPos": {"h": 4, "w": 5, "x": 19, "y": 0},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "furiosa_npu_dram_total"}],
       "fieldConfig": {"defaults": {"unit": "bytes"}}
     },
@@ -69,7 +69,7 @@
       "type": "timeseries",
       "title": "PE Core Utilization (%) — 8 cores",
       "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "furiosa_npu_core_utilization", "legendFormat": "core {{core}}"}],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10}}}
     },
@@ -78,7 +78,7 @@
       "type": "timeseries",
       "title": "Core Frequency (MHz)",
       "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "furiosa_npu_core_frequency", "legendFormat": "core {{core}}"}],
       "fieldConfig": {"defaults": {"unit": "rotmhz", "custom": {"drawStyle": "line", "lineWidth": 1}}}
     },
@@ -87,7 +87,7 @@
       "type": "timeseries",
       "title": "Temperature trend",
       "gridPos": {"h": 8, "w": 8, "x": 0, "y": 13},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "furiosa_npu_hw_temperature", "legendFormat": "{{label}}"}],
       "fieldConfig": {"defaults": {"unit": "celsius"}}
     },
@@ -96,7 +96,7 @@
       "type": "timeseries",
       "title": "Power trend",
       "gridPos": {"h": 8, "w": 8, "x": 8, "y": 13},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "furiosa_npu_hw_power", "legendFormat": "{{label}}"}],
       "fieldConfig": {"defaults": {"unit": "watt"}}
     },
@@ -105,7 +105,7 @@
       "type": "timeseries",
       "title": "Task execution cycles (counter / rate)",
       "gridPos": {"h": 8, "w": 8, "x": 16, "y": 13},
-      "datasource": "prometheus",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "rate(furiosa_npu_task_execution_cycle[2m])", "legendFormat": "core {{core}}"}],
       "fieldConfig": {"defaults": {"unit": "ops"}}
     }
