@@ -1,0 +1,382 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "title": "PUE GPU Load Controller",
+  "uid": "pue-gpu-load",
+  "tags": ["pue", "gpu", "self-monitoring"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "GPU Utilization (DCGM)",
+      "description": "Instantaneous GPU utilization per node from DCGM",
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_GPU_UTIL{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "blue", "value": null},
+          {"color": "green", "value": 70},
+          {"color": "yellow", "value": 90},
+          {"color": "red", "value": 95}
+        ]}
+      }},
+      "options": {"orientation": "horizontal", "colorMode": "background", "graphMode": "area", "textMode": "value_and_name"}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "GPU Temperature (°C)",
+      "gridPos": {"h": 5, "w": 5, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_GPU_TEMP{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "celsius",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "orange", "value": 78},
+          {"color": "red", "value": 83}
+        ]}
+      }},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value_and_name"}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "GPU Power (W)",
+      "gridPos": {"h": 5, "w": 5, "x": 13, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "blue", "value": null},
+          {"color": "green", "value": 50},
+          {"color": "yellow", "value": 250},
+          {"color": "red", "value": 320}
+        ]}
+      }},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value_and_name"}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "VRAM Usage (%)",
+      "description": "GPU VRAM usage — batch increase blocked above 85%",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_FB_USED{Hostname=~\"node2|node3|node4\"} / (DCGM_FI_DEV_FB_USED{Hostname=~\"node2|node3|node4\"} + DCGM_FI_DEV_FB_FREE{Hostname=~\"node2|node3|node4\"}) * 100", "legendFormat": "{{Hostname}}", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "orange", "value": 80},
+          {"color": "red", "value": 85}
+        ]}
+      }},
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value_and_name"}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "GPU Utilization Trend (90s avg)",
+      "description": "Smoothed GPU utilization used by the PI controller feedback loop",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "avg_over_time(DCGM_FI_DEV_GPU_UTIL{Hostname=~\"node2|node3|node4\"}[90s])", "legendFormat": "{{Hostname}} (90s avg)"},
+        {"expr": "DCGM_FI_DEV_GPU_UTIL{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}} (instant)"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null}
+        ]}
+      },
+      "overrides": [
+        {"matcher": {"id": "byRegexp", "options": ".*instant.*"},
+         "properties": [{"id": "custom.lineWidth", "value": 1}, {"id": "custom.fillOpacity", "value": 0}, {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}]}
+      ]}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "GPU Power Draw (W)",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt", "min": 0,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}
+      }}
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "GPU Temperature (°C)",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_GPU_TEMP{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "celsius", "min": 20, "max": 95,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10,
+          "thresholdsStyle": {"mode": "line"}},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "red", "value": 83}
+        ]}
+      }}
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Blended Utilization (DCGM 50% + Power/TDP 50%)",
+      "description": "The blended signal used by the PI controller for stable feedback",
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "(avg_over_time(DCGM_FI_DEV_GPU_UTIL{Hostname=\"node2\"}[90s]) + DCGM_FI_DEV_POWER_USAGE{Hostname=\"node2\"} / 180 * 100) / 2", "legendFormat": "node2 (5060 Ti)"},
+        {"expr": "(avg_over_time(DCGM_FI_DEV_GPU_UTIL{Hostname=\"node3\"}[90s]) + DCGM_FI_DEV_POWER_USAGE{Hostname=\"node3\"} / 180 * 100) / 2", "legendFormat": "node3 (5060 Ti)"},
+        {"expr": "(avg_over_time(DCGM_FI_DEV_GPU_UTIL{Hostname=\"node4\"}[90s]) + DCGM_FI_DEV_POWER_USAGE{Hostname=\"node4\"} / 360 * 100) / 2", "legendFormat": "node4 (5080)"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10,
+          "thresholdsStyle": {"mode": "area"}},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "transparent", "value": null},
+          {"color": "rgba(50, 172, 45, 0.1)", "value": 70},
+          {"color": "transparent", "value": 90}
+        ]}
+      }}
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Total GPU Power (node2-4)",
+      "description": "Combined GPU power draw — correlates with PUE thermal impact",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"})", "legendFormat": "Total GPU Power"},
+        {"expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt", "min": 0,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}
+      },
+      "overrides": [
+        {"matcher": {"id": "byName", "options": "Total GPU Power"},
+         "properties": [{"id": "custom.lineWidth", "value": 3}, {"id": "custom.fillOpacity", "value": 0}]}
+      ]}
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "VRAM Usage (%) Trend",
+      "description": "GPU framebuffer memory usage — batch increase blocked above 85%",
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_FB_USED{Hostname=~\"node2|node3|node4\"} / (DCGM_FI_DEV_FB_USED{Hostname=~\"node2|node3|node4\"} + DCGM_FI_DEV_FB_FREE{Hostname=~\"node2|node3|node4\"}) * 100", "legendFormat": "{{Hostname}}"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10,
+          "thresholdsStyle": {"mode": "line+area"}},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "transparent", "value": null},
+          {"color": "rgba(255, 0, 0, 0.1)", "value": 85}
+        ]}
+      }}
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "Xid Errors (DCGM)",
+      "description": "GPU Xid errors — non-zero triggers emergency stop",
+      "gridPos": {"h": 4, "w": 12, "x": 0, "y": 22},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_XID_ERRORS{Hostname=~\"node1|node2|node3|node4\"}", "legendFormat": "{{Hostname}}", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "red", "value": 1}
+        ]},
+        "mappings": [{"options": {"0": {"text": "OK", "color": "green"}}, "type": "value"}]
+      }},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value_and_name"}
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "VRAM Used (MiB)",
+      "description": "Absolute VRAM usage in MiB per node",
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 22},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_FB_USED{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "decmbytes",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 12000},
+          {"color": "red", "value": 14000}
+        ]}
+      }},
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value_and_name"}
+    },
+    {
+      "id": 40,
+      "type": "stat",
+      "title": "IT Total Power (GPU+NPU)",
+      "description": "GPU (node2-4) + NPU (node5) total accelerator power",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"}) + on() furiosa_npu_hw_power{label=\"rms\"}", "legendFormat": "IT Total", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "blue", "value": null},
+          {"color": "green", "value": 200},
+          {"color": "yellow", "value": 600},
+          {"color": "red", "value": 900}
+        ]}
+      }},
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value",
+                  "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "GPU Total (node2-4)",
+      "description": "GPU power sum — node1 excluded (control-plane)",
+      "gridPos": {"h": 6, "w": 4, "x": 8, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"})", "legendFormat": "GPU Total", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "blue", "value": null},
+          {"color": "green", "value": 100}
+        ]}
+      }},
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value"}
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "NPU Power (node5)",
+      "description": "Furiosa RNGD NPU power — node5",
+      "gridPos": {"h": 6, "w": 4, "x": 12, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "furiosa_npu_hw_power{label=\"rms\"}", "legendFormat": "NPU (RNGD)", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "purple", "value": null}
+        ]}
+      }},
+      "options": {"colorMode": "background", "graphMode": "area", "textMode": "value"}
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "Facility Power",
+      "description": "Facility total power — data source TBD. PUE = Facility / IT",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "vector(0)", "legendFormat": "Not Connected", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt",
+        "noValue": "TBD",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "dark-yellow", "value": null}
+        ]},
+        "mappings": [{"options": {"0": {"text": "Data Source TBD", "color": "dark-yellow"}}, "type": "value"}]
+      }},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value"}
+    },
+    {
+      "id": 50,
+      "type": "timeseries",
+      "title": "IT Power Breakdown (GPU + NPU)",
+      "description": "IT accelerator power trend — GPU (node2-4) + NPU (node5)",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"}) + on() furiosa_npu_hw_power{label=\"rms\"}", "legendFormat": "IT Total"},
+        {"expr": "sum(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"})", "legendFormat": "GPU Total (node2-4)"},
+        {"expr": "furiosa_npu_hw_power{label=\"rms\"}", "legendFormat": "NPU (node5)"},
+        {"expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt", "min": 0,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+      },
+      "overrides": [
+        {"matcher": {"id": "byName", "options": "IT Total"},
+         "properties": [{"id": "custom.lineWidth", "value": 3}, {"id": "custom.fillOpacity", "value": 0}, {"id": "color", "value": {"fixedColor": "white", "mode": "fixed"}}]},
+        {"matcher": {"id": "byName", "options": "GPU Total (node2-4)"},
+         "properties": [{"id": "custom.lineWidth", "value": 2}, {"id": "custom.fillOpacity", "value": 5}, {"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]},
+        {"matcher": {"id": "byName", "options": "NPU (node5)"},
+         "properties": [{"id": "custom.lineWidth", "value": 2}, {"id": "custom.fillOpacity", "value": 5}, {"id": "color", "value": {"fixedColor": "purple", "mode": "fixed"}}]}
+      ]}
+    },
+    {
+      "id": 51,
+      "type": "timeseries",
+      "title": "Per-Node GPU Power (W)",
+      "description": "Individual GPU power per node (node1 excluded)",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=~\"node2|node3|node4\"}", "legendFormat": "{{Hostname}}"},
+        {"expr": "furiosa_npu_hw_power{label=\"rms\"}", "legendFormat": "node5 (NPU)"}
+      ],
+      "fieldConfig": {"defaults": {
+        "unit": "watt", "min": 0,
+        "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "stacking": {"mode": "normal"}}
+      },
+      "overrides": [
+        {"matcher": {"id": "byName", "options": "node5 (NPU)"},
+         "properties": [{"id": "color", "value": {"fixedColor": "purple", "mode": "fixed"}}]}
+      ]}
+    }
+  ]
+}

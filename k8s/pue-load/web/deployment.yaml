@@ -1,0 +1,141 @@
+##
+## PUE GPU Load Controller — Web UI
+##
+## Deploy:
+##   1. kubectl -n failure-prediction create configmap pue-web-app \
+##        --from-file=app.py=k8s/pue-load/web/app.py \
+##        --dry-run=client -o yaml | kubectl apply -f -
+##   2. kubectl apply -f k8s/pue-load/web/deployment.yaml
+##
+## Access: http://<any-node-ip>:31618
+##
+
+---
+# RBAC: minimal permissions — ConfigMap patch + Deployment scale only
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pue-web-controller
+  namespace: failure-prediction
+  labels:
+    app: pue-web
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pue-web-role
+  namespace: failure-prediction
+rules:
+  # Read/patch pue-gpu-load-config ConfigMap
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["pue-gpu-load-config"]
+    verbs: ["get", "patch"]
+  # Read/patch pue-gpu-load Deployment (for scale)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["pue-gpu-load"]
+    verbs: ["get", "patch"]
+  # Scale sub-resource
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["pue-gpu-load"]
+    verbs: ["get", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pue-web-binding
+  namespace: failure-prediction
+subjects:
+  - kind: ServiceAccount
+    name: pue-web-controller
+    namespace: failure-prediction
+roleRef:
+  kind: Role
+  name: pue-web-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pue-web
+  namespace: failure-prediction
+  labels:
+    app: pue-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pue-web
+  template:
+    metadata:
+      labels:
+        app: pue-web
+    spec:
+      serviceAccountName: pue-web-controller
+      nodeSelector:
+        kubernetes.io/hostname: node2
+      containers:
+        - name: web
+          image: 10.100.230.130:5000/failure-pred:gpu-latest
+          imagePullPolicy: Always
+          command:
+            - python3
+            - /app/pue-web/app.py
+          env:
+            - name: PORT
+              value: "8080"
+            - name: PROMETHEUS_URL
+              value: "http://monitoring-kube-prometheus-prometheus.monitoring:9090"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: "0.1"
+              memory: 128Mi
+            limits:
+              cpu: "0.5"
+              memory: 256Mi
+          volumeMounts:
+            - name: app
+              mountPath: /app/pue-web
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: app
+          configMap:
+            name: pue-web-app
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pue-web-svc
+  namespace: failure-prediction
+  labels:
+    app: pue-web
+spec:
+  type: NodePort
+  selector:
+    app: pue-web
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 31619
+      name: http

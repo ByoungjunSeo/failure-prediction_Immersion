@@ -1,0 +1,115 @@
+##
+## PUE GPU Load System — Dynamic GPU utilisation controller for PUE measurement.
+##
+## Deploy:
+##   1. kubectl -n failure-prediction create configmap pue-gpu-load-script \
+##        --from-file=pue_gpu_load.py=k8s/pue-load/pue_gpu_load.py \
+##        --dry-run=client -o yaml | kubectl apply -f -
+##   2. kubectl apply -f k8s/pue-load/deployment.yaml
+##
+## ON:   kubectl -n failure-prediction scale deploy pue-gpu-load --replicas=1
+## OFF:  kubectl -n failure-prediction scale deploy pue-gpu-load --replicas=0
+##
+## Target change (instant, triggers pod restart):
+##   kubectl -n failure-prediction set env deploy/pue-gpu-load TARGET_GPU_UTIL=90
+##
+## Target change (no restart, propagates via ConfigMap volume in ~60s):
+##   kubectl -n failure-prediction edit configmap pue-gpu-load-config
+##     -> change TARGET_GPU_UTIL value -> save
+##
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pue-gpu-load-config
+  namespace: failure-prediction
+  labels:
+    app: pue-gpu-load
+data:
+  # ── Control (conservative start: TARGET=60 → step up to 70 → 80 max) ──
+  TARGET_GPU_UTIL:  "60"
+  GPU_TEMP_LIMIT:   "83"
+  CONTROL_INTERVAL: "90"
+  # ── Training model (larger than inference AT for GPU load) ──
+  TRAIN_D_MODEL:  "512"
+  TRAIN_N_HEADS:  "8"
+  TRAIN_E_LAYERS: "6"
+  TRAIN_D_FF:     "2048"
+  TRAIN_WIN_SIZE: "200"
+  INITIAL_BATCH:  "32"
+  MAX_BATCH:      "72"
+  WARMUP_SECONDS: "120"
+  INITIAL_SLEEP:  "0.0"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pue-gpu-load
+  namespace: failure-prediction
+  labels:
+    app: pue-gpu-load
+spec:
+  replicas: 0          # OFF by default — scale to 1 to start PUE load
+  strategy:
+    type: Recreate     # avoid 2 controllers fighting over actors
+  selector:
+    matchLabels:
+      app: pue-gpu-load
+  template:
+    metadata:
+      labels:
+        app: pue-gpu-load
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: node2        # avoid node1 (CUDA driver broken)
+      # tolerations not needed on worker nodes
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: controller
+        image: 10.100.230.130:5000/failure-pred:gpu-latest
+        imagePullPolicy: Always
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          RAY_HEAD="failure-pred-head-svc:6379"
+          echo "[entrypoint] Joining Ray cluster at $RAY_HEAD as zero-resource node"
+          ray start --address="$RAY_HEAD" --num-cpus=0 --num-gpus=0 2>&1 | tail -5
+
+          echo "[entrypoint] Waiting for Raylet connection..."
+          sleep 5
+
+          echo "[entrypoint] Starting PUE GPU Load Controller"
+          exec python3 /app/pue-load/pue_gpu_load.py
+        envFrom:
+        - configMapRef:
+            name: pue-gpu-load-config
+        env:
+        - name: RAY_ADDRESS
+          value: "auto"
+        - name: PROMETHEUS_URL
+          value: "http://monitoring-kube-prometheus-prometheus.monitoring:9090"
+        - name: VICTORIA_METRICS_URL
+          value: "http://victoria-metrics-svc.failure-prediction:8428"
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
+        volumeMounts:
+        - name: script
+          mountPath: /app/pue-load
+        - name: config-vol
+          mountPath: /etc/pue-config
+          readOnly: true
+      volumes:
+      - name: script
+        configMap:
+          name: pue-gpu-load-script
+      - name: config-vol
+        configMap:
+          name: pue-gpu-load-config

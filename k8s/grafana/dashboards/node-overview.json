@@ -8,7 +8,7 @@
   "tags": ["self-monitoring", "overview"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {"from": "now-3h", "to": "now"},
   "templating": {
@@ -107,17 +107,166 @@
     },
 
     {
+      "id": 150,
+      "type": "row",
+      "title": "현재 상태 요약",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 13},
+      "collapsed": false
+    },
+    {
+      "id": 17,
+      "type": "gauge",
+      "title": "CPU 사용률",
+      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"$instance\"}[5m]))) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+        "legendFormat": "{{nodename}}",
+        "instant": true
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "red", "value": 90}
+        ]}
+      }},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true, "orientation": "auto"}
+    },
+    {
+      "id": 18,
+      "type": "gauge",
+      "title": "메모리 사용률",
+      "gridPos": {"h": 6, "w": 4, "x": 4, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "100 * (1 - node_memory_MemAvailable_bytes{instance=~\"$instance\"} / node_memory_MemTotal_bytes{instance=~\"$instance\"}) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+        "legendFormat": "{{nodename}}",
+        "instant": true
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 80},
+          {"color": "red", "value": 95}
+        ]}
+      }},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true, "orientation": "auto"}
+    },
+    {
+      "id": 19,
+      "type": "gauge",
+      "title": "디스크 사용률 (/)",
+      "gridPos": {"h": 6, "w": 4, "x": 8, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "100 * (1 - node_filesystem_avail_bytes{instance=~\"$instance\",mountpoint=\"/\",fstype!~\"rootfs|tmpfs\"} / node_filesystem_size_bytes{instance=~\"$instance\",mountpoint=\"/\",fstype!~\"rootfs|tmpfs\"}) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+        "legendFormat": "{{nodename}}",
+        "instant": true
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 75},
+          {"color": "red", "value": 90}
+        ]}
+      }},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true, "orientation": "auto"}
+    },
+    {
+      "id": 20,
+      "type": "gauge",
+      "title": "GPU 사용률 (node1~4)",
+      "gridPos": {"h": 6, "w": 4, "x": 12, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "DCGM_FI_DEV_GPU_UTIL{Hostname=~\"$node\"}",
+        "legendFormat": "{{Hostname}}",
+        "instant": true
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "red", "value": 90}
+        ]}
+      }},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true, "orientation": "auto"}
+    },
+    {
+      "id": 21,
+      "type": "gauge",
+      "title": "NPU 사용률 (node5)",
+      "gridPos": {"h": 6, "w": 4, "x": 16, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "avg by(hostname) (furiosa_npu_core_utilization{hostname=~\"$node\"})",
+        "legendFormat": "{{hostname}}",
+        "instant": true
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "red", "value": 90}
+        ]}
+      }},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true, "orientation": "auto"}
+    },
+    {
+      "id": 22,
+      "type": "piechart",
+      "title": "메모리 구성",
+      "gridPos": {"h": 6, "w": 4, "x": 20, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(node_memory_MemTotal_bytes{instance=~\"$instance\"} - node_memory_MemFree_bytes{instance=~\"$instance\"} - node_memory_Buffers_bytes{instance=~\"$instance\"} - node_memory_Cached_bytes{instance=~\"$instance\"})",
+          "legendFormat": "Used",
+          "instant": true
+        },
+        {
+          "expr": "sum(node_memory_Cached_bytes{instance=~\"$instance\"} + node_memory_Buffers_bytes{instance=~\"$instance\"})",
+          "legendFormat": "Cached",
+          "instant": true
+        },
+        {
+          "expr": "sum(node_memory_MemFree_bytes{instance=~\"$instance\"})",
+          "legendFormat": "Free",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {"mode": "fixed"}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Used"},   "properties": [{"id": "color", "value": {"fixedColor": "red",   "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "Cached"}, "properties": [{"id": "color", "value": {"fixedColor": "yellow","mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "Free"},   "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]}
+        ]
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "pieType": "donut", "tooltip": {"mode": "single"}, "legend": {"displayMode": "list", "placement": "bottom", "values": ["percent"]}}
+    },
+
+    {
       "id": 200,
       "type": "row",
-      "title": "시스템 자원",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 13},
+      "title": "시스템 자원 (추세)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 20},
       "collapsed": false
     },
     {
       "id": 4,
       "type": "timeseries",
       "title": "CPU 사용률 (%)",
-      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 14},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 21},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"$instance\"}[5m]))) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
@@ -133,7 +282,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "메모리 사용률 (%)",
-      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 14},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 21},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "100 * (1 - node_memory_MemAvailable_bytes{instance=~\"$instance\"} / node_memory_MemTotal_bytes{instance=~\"$instance\"}) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
@@ -149,7 +298,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "디스크 사용률 (/) (%)",
-      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 21},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 28},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "100 * (1 - node_filesystem_avail_bytes{instance=~\"$instance\",mountpoint=\"/\",fstype!~\"rootfs|tmpfs\"} / node_filesystem_size_bytes{instance=~\"$instance\",mountpoint=\"/\",fstype!~\"rootfs|tmpfs\"}) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
@@ -165,7 +314,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Disk I/O",
-      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 21},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 28},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
@@ -186,7 +335,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Network I/O",
-      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 21},
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 28},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
@@ -208,14 +357,14 @@
       "id": 300,
       "type": "row",
       "title": "GPU 자원 (node1~4)",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 28},
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 35},
       "collapsed": false
     },
     {
       "id": 9,
       "type": "timeseries",
       "title": "GPU 사용률 (%)",
-      "gridPos": {"h": 7, "w": 6, "x": 0, "y": 29},
+      "gridPos": {"h": 7, "w": 6, "x": 0, "y": 36},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "DCGM_FI_DEV_GPU_UTIL{Hostname=~\"$node\"}",
@@ -231,7 +380,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "GPU 온도 (\u00b0C)",
-      "gridPos": {"h": 7, "w": 6, "x": 6, "y": 29},
+      "gridPos": {"h": 7, "w": 6, "x": 6, "y": 36},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "DCGM_FI_DEV_GPU_TEMP{Hostname=~\"$node\"}",
@@ -251,7 +400,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "GPU 전력 (W)",
-      "gridPos": {"h": 7, "w": 6, "x": 12, "y": 29},
+      "gridPos": {"h": 7, "w": 6, "x": 12, "y": 36},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=~\"$node\"}",
@@ -266,7 +415,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "GPU 메모리 (MiB)",
-      "gridPos": {"h": 7, "w": 6, "x": 18, "y": 29},
+      "gridPos": {"h": 7, "w": 6, "x": 18, "y": 36},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
@@ -298,14 +447,14 @@
       "id": 400,
       "type": "row",
       "title": "NPU 자원 (node5)",
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 36},
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 43},
       "collapsed": false
     },
     {
       "id": 13,
       "type": "timeseries",
       "title": "NPU 사용률 (%)",
-      "gridPos": {"h": 7, "w": 6, "x": 0, "y": 37},
+      "gridPos": {"h": 7, "w": 6, "x": 0, "y": 44},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "avg by(hostname) (furiosa_npu_core_utilization{hostname=~\"$node\"})",
@@ -321,7 +470,7 @@
       "id": 14,
       "type": "timeseries",
       "title": "NPU 온도 (\u00b0C)",
-      "gridPos": {"h": 7, "w": 6, "x": 6, "y": 37},
+      "gridPos": {"h": 7, "w": 6, "x": 6, "y": 44},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "furiosa_npu_hw_temperature{hostname=~\"$node\"}",
@@ -341,7 +490,7 @@
       "id": 15,
       "type": "timeseries",
       "title": "NPU 전력 (W)",
-      "gridPos": {"h": 7, "w": 6, "x": 12, "y": 37},
+      "gridPos": {"h": 7, "w": 6, "x": 12, "y": 44},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{
         "expr": "furiosa_npu_hw_power{hostname=~\"$node\"}",
@@ -356,7 +505,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "NPU 메모리 (DRAM)",
-      "gridPos": {"h": 7, "w": 6, "x": 18, "y": 37},
+      "gridPos": {"h": 7, "w": 6, "x": 18, "y": 44},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
