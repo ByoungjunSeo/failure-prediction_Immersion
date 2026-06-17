@@ -135,7 +135,7 @@ def vm_push(lines):
 
 # ─────────────────────────── GPUTrainer Actor ───────────────────────────
 
-@ray.remote(num_gpus=0.35, num_cpus=0.5, max_concurrency=2)
+@ray.remote(num_gpus=0, num_cpus=0, max_concurrency=2)
 class GPUTrainer:
     """Continual AnomalyTransformer training on one GPU node.
 
@@ -144,6 +144,10 @@ class GPUTrainer:
     """
 
     def __init__(self, node_name: str, model_cfg: dict):
+        # num_gpus=0 causes Ray to set CUDA_VISIBLE_DEVICES=""
+        # Override BEFORE importing torch so CUDA init sees all devices
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+
         import torch
 
         sys.path.insert(0, "/app/vendor/Anomaly-Transformer")
@@ -531,11 +535,14 @@ def _probe_gpu_workers():
     Skips head pod (node1 = control-plane protected).
     """
 
-    @ray.remote(num_gpus=0.1, num_cpus=0.1)
+    @ray.remote(num_gpus=0, num_cpus=0)
     class _CUDAProbe:
         def check(self):
+            import os, subprocess
+            # num_gpus=0 causes Ray to set CUDA_VISIBLE_DEVICES=""
+            # Override BEFORE importing torch so CUDA init sees all devices
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
             import torch
-            import subprocess
             ok = torch.cuda.is_available()
             if ok:
                 torch.randn(1, device="cuda:0")

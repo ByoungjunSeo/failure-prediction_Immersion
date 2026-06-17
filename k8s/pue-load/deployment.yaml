@@ -28,7 +28,7 @@ metadata:
     app: pue-gpu-load
 data:
   # ── Control (conservative start: TARGET=60 → step up to 70 → 80 max) ──
-  TARGET_GPU_UTIL:  "60"
+  TARGET_GPU_UTIL:  "80"
   GPU_TEMP_LIMIT:   "83"
   CONTROL_INTERVAL: "90"
   # ── Training model (larger than inference AT for GPU load) ──
@@ -89,6 +89,8 @@ spec:
         env:
         - name: RAY_ADDRESS
           value: "auto"
+        - name: RAY_memory_monitor_refresh_ms
+          value: "0"
         - name: PROMETHEUS_URL
           value: "http://monitoring-kube-prometheus-prometheus.monitoring:9090"
         - name: VICTORIA_METRICS_URL

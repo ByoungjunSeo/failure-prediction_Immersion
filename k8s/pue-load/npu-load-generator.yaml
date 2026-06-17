@@ -1,0 +1,104 @@
+##
+## NPU Load Generator — PUE 측정용 지속 부하
+##
+## ON:  kubectl -n failure-prediction scale deployment npu-load-generator --replicas=1
+## OFF: kubectl -n failure-prediction scale deployment npu-load-generator --replicas=0
+##
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: npu-load-generator
+  namespace: failure-prediction
+  labels:
+    app: npu-load-generator
+    purpose: pue-measurement
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: npu-load-generator
+  template:
+    metadata:
+      labels:
+        app: npu-load-generator
+        purpose: pue-measurement
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: node1
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+      - name: loadgen
+        image: 10.100.230.130:5000/failure-pred:gpu-latest
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "-u", "-c"]
+        args:
+        - |
+          """NPU load generator — continuous embedding requests for PUE measurement.
+
+          Sends embedding requests at configurable intervals.
+          Self-throttles if inference latency exceeds threshold.
+          """
+          import json, logging, os, time, urllib.request, urllib.error
+
+          logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+          log = logging.getLogger("npu-loadgen")
+
+          NPU_URL = os.getenv("NPU_URL", "http://npu-embed-svc.failure-prediction:8000/v1/embeddings")
+          INTERVAL = float(os.getenv("INTERVAL_SEC", "0.2"))
+          THROTTLE_LATENCY = float(os.getenv("THROTTLE_LATENCY_SEC", "5.0"))
+          THROTTLE_INTERVAL = float(os.getenv("THROTTLE_INTERVAL_SEC", "2.0"))
+          LOG_EVERY = int(os.getenv("LOG_EVERY", "30"))
+
+          counter = 0
+          errors = 0
+          interval = INTERVAL
+          total_latency = 0.0
+
+          log.info("NPU load generator started: interval=%.1fs throttle_at=%.1fs", INTERVAL, THROTTLE_LATENCY)
+
+          while True:
+              payload = json.dumps({
+                  "model": "Qwen3-Embedding-4B",
+                  "input": "pue measurement sustained load payload %d %f" % (counter, time.time())
+              }).encode()
+              req = urllib.request.Request(NPU_URL, data=payload, headers={"Content-Type": "application/json"})
+              t0 = time.monotonic()
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      resp.read()
+                  latency = time.monotonic() - t0
+                  total_latency += latency
+                  # Self-throttle: if latency too high, back off
+                  if latency > THROTTLE_LATENCY and interval < THROTTLE_INTERVAL:
+                      interval = min(interval * 1.5, THROTTLE_INTERVAL)
+                      log.warning("Latency %.1fs > threshold, throttling to %.2fs interval", latency, interval)
+                  elif latency < THROTTLE_LATENCY * 0.5 and interval > INTERVAL:
+                      interval = max(interval * 0.8, INTERVAL)
+              except Exception as e:
+                  errors += 1
+                  if errors % 10 == 1:
+                      log.error("Request failed (#%d): %s", errors, e)
+              counter += 1
+              if counter % LOG_EVERY == 0:
+                  avg = total_latency / max(counter, 1)
+                  log.info("reqs=%d errors=%d avg_latency=%.3fs interval=%.3fs", counter, errors, avg, interval)
+              time.sleep(interval)
+        env:
+        - name: NPU_URL
+          value: "http://npu-embed-svc.failure-prediction:8000/v1/embeddings"
+        - name: INTERVAL_SEC
+          value: "0.5"
+        - name: THROTTLE_LATENCY_SEC
+          value: "5.0"
+        - name: LOG_EVERY
+          value: "30"
+        resources:
+          requests:
+            cpu: "0.1"
+            memory: 64Mi
+          limits:
+            cpu: "0.5"
+            memory: 128Mi
