@@ -15,5 +15,6 @@ if [ ! -d "$ARTIFACT_DIR" ] || [ -z "$(ls -A "$ARTIFACT_DIR" 2>/dev/null)" ]; th
   python /app/build_npu_artifact.py --model "$MODEL_ID" --save-dir "$ARTIFACT_DIR"
 fi
 
-echo "[entrypoint] starting furiosa-llm serve on ${SERVE_HOST}:${SERVE_PORT}"
-exec furiosa-llm serve "$ARTIFACT_DIR" --host "$SERVE_HOST" --port "$SERVE_PORT"
+DEVICES="${DEVICES:-npu0}"
+echo "[entrypoint] starting furiosa-llm serve on ${SERVE_HOST}:${SERVE_PORT} (devices=${DEVICES})"
+exec furiosa-llm serve "$ARTIFACT_DIR" --host "$SERVE_HOST" --port "$SERVE_PORT" --devices "$DEVICES"
