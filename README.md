@@ -115,8 +115,7 @@ PCIe 사망(Xid 79) 2회 이력. IPMI cold cycle로 복구 가능하나, **PUE G
 | **Anomaly Transformer** (ICLR 2022) | 0.25 | 최근 100개 CE의 재구성 오차 / threshold | CPU |
 | **NPU LLM Embedding** | (간접) | Qwen3-Embedding-4B 벡터로 XGBoost 피처 보강 | Furiosa RNGD |
 
-**앙상블 공식:**
-```
+**앙상블 공식:```
 failure_probability = 0.25 x Chronos + 0.15 x MOIRAI + 0.35 x XGBoost + 0.25 x AnomalyTransformer
 ```
 
