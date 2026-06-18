@@ -25,15 +25,16 @@ info "추론 서비스 확인"
 check_inference || { error "추론 비정상 — 부하 시작 중단"; exit 1; }
 
 # ── 2. GPU 부하 ──────────────────────────────────────────────
-info "[2/4] GPU 부하: target=${GPU_TARGET}%"
+GPU_INITIAL=$(initial_batch_for_target "$GPU_TARGET")
+info "[2/4] GPU 부하: target=${GPU_TARGET}%, initial_batch=${GPU_INITIAL}"
 ssh_master "
   kubectl -n $NS patch configmap pue-gpu-load-config --type merge \
-    -p '{\"data\":{\"TARGET_GPU_UTIL\":\"${GPU_TARGET}\"}}'
+    -p '{\"data\":{\"TARGET_GPU_UTIL\":\"${GPU_TARGET}\",\"INITIAL_BATCH\":\"${GPU_INITIAL}\"}}'
   kubectl -n $NS scale deployment pue-gpu-load --replicas=1
   kubectl -n $NS rollout restart deployment pue-gpu-load
   kubectl -n $NS rollout status deployment pue-gpu-load --timeout=120s
 "
-info "GPU 부하 컨트롤러 ON (target=${GPU_TARGET}%)"
+info "GPU 부하 컨트롤러 ON (target=${GPU_TARGET}%, batch=${GPU_INITIAL})"
 
 # ── 3. NPU 부하 ─────────────────────────────────────────────
 NPU_INTERVAL=$(npu_interval_for_target "$NPU_TARGET")

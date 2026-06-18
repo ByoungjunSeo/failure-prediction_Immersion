@@ -76,3 +76,21 @@ npu_interval_for_target() {
       ;;
   esac
 }
+
+# ── GPU INITIAL_BATCH mapping ───────────────────────────────
+# Sets initial training batch size to match target utilization,
+# so PI controller converges faster (no overshoot from high initial batch).
+#   30% → 8  (start low, avoid 90%+ overshoot)
+#   50% → 16
+#   90% → 32
+#   99% → 32
+initial_batch_for_target() {
+  local TARGET=$1
+  case $TARGET in
+    30)  echo "8"  ;;
+    50)  echo "16" ;;
+    90)  echo "32" ;;
+    99)  echo "32" ;;
+    *)   echo "16" ;;
+  esac
+}
