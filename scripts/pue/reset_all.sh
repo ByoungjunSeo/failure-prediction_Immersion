@@ -38,7 +38,7 @@ if echo "$GPU_STATUS" | grep -qi "no devices\|error\|failed"; then
   warn "node1 GPU 죽어있음: $GPU_STATUS"
   echo ""
   echo -n "  IPMI cold cycle 실행하시겠습니까? (yes/no): "
-  read -r CONFIRM
+  read -r CONFIRM || CONFIRM=""
   if [ "$CONFIRM" = "yes" ]; then
     if [ -z "${IPMI_HOST:-}" ] || [ -z "${IPMI_USER:-}" ] || [ -z "${IPMI_PASS:-}" ]; then
       error "IPMI 환경변수 필요:"
@@ -78,7 +78,7 @@ REG_STATUS=$(ssh_master "kubectl -n $NS get pod registry --no-headers 2>/dev/nul
 if [ "$REG_STATUS" != "Running" ]; then
   warn "Registry 비정상 ($REG_STATUS)"
   echo -n "  Registry pod 재생성하시겠습니까? (yes/no): "
-  read -r CONFIRM
+  read -r CONFIRM || CONFIRM=""
   if [ "$CONFIRM" = "yes" ]; then
     ssh_master "kubectl -n $NS delete pod registry --ignore-not-found=true" || true
     sleep 5
@@ -135,7 +135,7 @@ UNHEALTHY=$(ssh_master "kubectl -n $NS get pods -l ray.io/node-type --no-headers
 if [ "$UNHEALTHY" -gt 0 ]; then
   warn "비정상 Ray pod ${UNHEALTHY}개"
   echo -n "  비정상 Ray pod 재시작하시겠습니까? (yes/no): "
-  read -r CONFIRM
+  read -r CONFIRM || CONFIRM=""
   if [ "$CONFIRM" = "yes" ]; then
     ssh_master "kubectl -n $NS delete pod -l ray.io/node-type --field-selector 'status.phase!=Running' --ignore-not-found=true" || true
     info "60초 대기..."
