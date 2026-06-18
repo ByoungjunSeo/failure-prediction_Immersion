@@ -61,7 +61,26 @@ Thumbs.db
 # --- Vendor (Anomaly-Transformer clone) ---
 vendor/
 
+# --- Legacy (구 ESXi 시스템 — 현재 액침 서비스와 무관) ---
+docs/
+docs_kubernetes/
+src/esxi/
+src/collectors/esxi_*.py
+src/api/main.py
+configs/esxi.yaml
+configs/servers.yaml
+scripts/esxi_load_driver.py
+scripts/setup_telegraf.py
+scripts/auto_training_scenario.py
+scripts/download_public_data.py
+scripts/grafana_dashboard.json
+tests/test_esxi_handler.py
+k8s/cronjobs/esxi-*.yaml
+k8s/docker/
+alembic/
+alembic.ini
+.env.example
+
 # --- Claude Code 작업 디렉토리 (커밋 금지) ---
 .claude/
 .claude_history
-docs/kubectl
