@@ -438,7 +438,7 @@ header h1{font-size:22px;font-weight:600;color:#e8eaed}
   <div class="config-bar" id="config-bar"></div>
   <div class="update-time" id="update-time"></div>
   <div class="footer">
-    PUE GPU Load Controller &middot; node1 excluded (control-plane)
+    PUE GPU Load Controller &middot; node1 excluded (GPU fault)
     &middot; node2-4 only
   </div>
 </div>

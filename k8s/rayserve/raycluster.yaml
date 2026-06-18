@@ -8,7 +8,7 @@ spec:
     rayStartParams:
       dashboard-host: 0.0.0.0
       num-cpus: "8"
-      num-gpus: "1"
+      num-gpus: "0"
     template:
       spec:
         nodeSelector:
@@ -39,11 +39,9 @@ spec:
             requests:
               cpu: "4"
               memory: 16Gi
-              nvidia.com/gpu: "1"
             limits:
               cpu: "16"
               memory: 32Gi
-              nvidia.com/gpu: "1"
           readinessProbe:
             exec:
               command:

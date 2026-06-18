@@ -1,0 +1,388 @@
+##
+## Inference Watchdog — Monitor inference health, auto-stop PUE load on degradation.
+##
+## Behaviour:
+##   - Every 30s: call /predict/node/all, measure response time
+##   - 3 consecutive failures (>5s or error) -> scale pue-gpu-load to 0 + Slack alert
+##   - 5 min cooldown after stop -> re-check; if healthy, alert only (no auto-restart)
+##   - RBAC scoped to pue-gpu-load ONLY
+##
+## Deploy:
+##   kubectl apply -f k8s/pue-load/inference-watchdog.yaml
+##
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: inference-watchdog
+  namespace: failure-prediction
+  labels:
+    app: inference-watchdog
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: inference-watchdog-role
+  namespace: failure-prediction
+rules:
+  # Scale pue-gpu-load only
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["pue-gpu-load"]
+    verbs: ["get", "patch"]
+  # Read deployment status
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["pue-gpu-load"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: inference-watchdog-binding
+  namespace: failure-prediction
+subjects:
+  - kind: ServiceAccount
+    name: inference-watchdog
+    namespace: failure-prediction
+roleRef:
+  kind: Role
+  name: inference-watchdog-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inference-watchdog-script
+  namespace: failure-prediction
+  labels:
+    app: inference-watchdog
+data:
+  watchdog.py: |
+    #!/usr/bin/env python3
+    """Inference Watchdog — auto-stop PUE GPU load if inference degrades.
+
+    - Polls /predict/node/all every CHECK_INTERVAL seconds
+    - If response time > THRESHOLD_SECONDS for FAIL_COUNT_TRIGGER consecutive checks,
+      scales pue-gpu-load to 0 and sends Slack alert
+    - After COOLDOWN_SECONDS, re-checks: if healthy, sends recovery alert (no auto-restart)
+    - Human must manually restart PUE load after review
+    """
+
+    import json
+    import logging
+    import os
+    import signal
+    import ssl
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    log = logging.getLogger("watchdog")
+
+    # ── Configuration ──
+    CHECK_INTERVAL       = int(os.getenv("CHECK_INTERVAL", "30"))
+    THRESHOLD_SECONDS    = float(os.getenv("THRESHOLD_SECONDS", "5.0"))
+    FAIL_COUNT_TRIGGER   = int(os.getenv("FAIL_COUNT_TRIGGER", "3"))
+    COOLDOWN_SECONDS     = int(os.getenv("COOLDOWN_SECONDS", "300"))
+    INFERENCE_URL        = os.getenv(
+        "INFERENCE_URL",
+        "http://failure-pred-head-svc:8000/predict/node/all",
+    )
+    NAMESPACE            = "failure-prediction"
+    DEPLOY_NAME          = os.getenv("DEPLOY_NAME", "pue-gpu-load")
+    SLACK_WEBHOOK_URL    = ""
+
+    # K8s in-cluster API
+    K8S_HOST     = os.getenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+    K8S_PORT     = os.getenv("KUBERNETES_SERVICE_PORT", "443")
+    SA_TOKEN     = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    SA_CA        = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+
+    def _load_slack_webhook():
+        """Load Slack webhook from mounted secret."""
+        global SLACK_WEBHOOK_URL
+        path = "/etc/slack-secret/SLACK_WEBHOOK_URL"
+        if os.path.isfile(path):
+            SLACK_WEBHOOK_URL = open(path).read().strip()
+            log.info("Slack webhook loaded")
+        else:
+            log.warning("Slack secret not found at %s — alerts disabled", path)
+
+
+    def _k8s_ssl_ctx():
+        ctx = ssl.create_default_context()
+        if os.path.isfile(SA_CA):
+            ctx.load_verify_locations(SA_CA)
+        return ctx
+
+
+    def _k8s_token():
+        if os.path.isfile(SA_TOKEN):
+            return open(SA_TOKEN).read().strip()
+        return ""
+
+
+    def k8s_api(method, path, body=None, content_type=None):
+        url = f"https://{K8S_HOST}:{K8S_PORT}{path}"
+        token = _k8s_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode()
+            headers["Content-Type"] = (
+                content_type or "application/strategic-merge-patch+json"
+            )
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        resp = urllib.request.urlopen(req, context=_k8s_ssl_ctx(), timeout=10)
+        return json.loads(resp.read())
+
+
+    def scale_deploy(replicas):
+        path = (
+            f"/apis/apps/v1/namespaces/{NAMESPACE}"
+            f"/deployments/{DEPLOY_NAME}/scale"
+        )
+        return k8s_api("PATCH", path, {"spec": {"replicas": replicas}})
+
+
+    def get_deploy_replicas():
+        path = f"/apis/apps/v1/namespaces/{NAMESPACE}/deployments/{DEPLOY_NAME}"
+        try:
+            dep = k8s_api("GET", path)
+            return dep.get("spec", {}).get("replicas", 0)
+        except Exception:
+            return -1
+
+
+    def check_inference():
+        """Call inference endpoint, return (ok, response_time_seconds, detail)."""
+        t0 = time.time()
+        try:
+            req = urllib.request.Request(INFERENCE_URL)
+            resp = urllib.request.urlopen(req, timeout=THRESHOLD_SECONDS + 5)
+            elapsed = time.time() - t0
+            body = resp.read().decode(errors="replace")[:200]
+            if elapsed > THRESHOLD_SECONDS:
+                return False, elapsed, f"slow response ({elapsed:.1f}s)"
+            return True, elapsed, "ok"
+        except urllib.error.URLError as e:
+            elapsed = time.time() - t0
+            return False, elapsed, f"URLError: {e.reason}"
+        except Exception as e:
+            elapsed = time.time() - t0
+            return False, elapsed, f"{type(e).__name__}: {e}"
+
+
+    def send_slack(text, color="#ff0000"):
+        if not SLACK_WEBHOOK_URL:
+            return
+        payload = {
+            "attachments": [{
+                "color": color,
+                "text": text,
+                "footer": "inference-watchdog",
+                "ts": int(time.time()),
+            }]
+        }
+        try:
+            data = json.dumps(payload).encode()
+            req = urllib.request.Request(
+                SLACK_WEBHOOK_URL, data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=10)
+            log.info("Slack alert sent")
+        except Exception as e:
+            log.warning("Slack send failed: %s", e)
+
+
+    def main():
+        _load_slack_webhook()
+
+        log.info("=" * 50)
+        log.info("Inference Watchdog started")
+        log.info("  endpoint:  %s", INFERENCE_URL)
+        log.info("  threshold: %.1fs x %d consecutive", THRESHOLD_SECONDS, FAIL_COUNT_TRIGGER)
+        log.info("  cooldown:  %ds", COOLDOWN_SECONDS)
+        log.info("  target:    %s/%s", NAMESPACE, DEPLOY_NAME)
+        log.info("=" * 50)
+
+        shutdown = [False]
+
+        def _sig(signum, _frame):
+            log.info("Signal %s — shutting down", signum)
+            shutdown[0] = True
+
+        signal.signal(signal.SIGTERM, _sig)
+        signal.signal(signal.SIGINT, _sig)
+
+        fail_count = 0
+        in_cooldown = False
+        cooldown_until = 0
+
+        while not shutdown[0]:
+            # Cooldown period — wait then re-check
+            if in_cooldown:
+                if time.time() < cooldown_until:
+                    time.sleep(CHECK_INTERVAL)
+                    continue
+
+                # Cooldown expired — re-check inference health
+                ok, elapsed, detail = check_inference()
+                if ok:
+                    msg = (
+                        f":white_check_mark: *Inference recovered* after cooldown\n"
+                        f"Response time: {elapsed:.1f}s\n"
+                        f"`{DEPLOY_NAME}` remains stopped — manual restart required.\n"
+                        f"```kubectl -n {NAMESPACE} scale deploy {DEPLOY_NAME} --replicas=1```"
+                    )
+                    log.info("Inference healthy after cooldown (%.1fs). Manual restart needed.", elapsed)
+                    send_slack(msg, color="#36a64f")
+                else:
+                    msg = (
+                        f":warning: *Inference still degraded* after cooldown\n"
+                        f"{detail} ({elapsed:.1f}s)\n"
+                        f"`{DEPLOY_NAME}` remains stopped."
+                    )
+                    log.warning("Inference still degraded after cooldown: %s (%.1fs)", detail, elapsed)
+                    send_slack(msg, color="#ff9900")
+
+                in_cooldown = False
+                fail_count = 0
+                time.sleep(CHECK_INTERVAL)
+                continue
+
+            # Normal check
+            ok, elapsed, detail = check_inference()
+
+            if ok:
+                if fail_count > 0:
+                    log.info("Inference OK (%.1fs) — fail counter reset (%d -> 0)", elapsed, fail_count)
+                else:
+                    log.info("Inference OK (%.1fs)", elapsed)
+                fail_count = 0
+            else:
+                fail_count += 1
+                log.warning(
+                    "Inference FAIL %d/%d: %s (%.1fs)",
+                    fail_count, FAIL_COUNT_TRIGGER, detail, elapsed,
+                )
+
+                if fail_count >= FAIL_COUNT_TRIGGER:
+                    # Check if PUE load is actually running
+                    replicas = get_deploy_replicas()
+                    if replicas > 0:
+                        log.error(
+                            "Inference degraded %d consecutive — stopping %s",
+                            FAIL_COUNT_TRIGGER, DEPLOY_NAME,
+                        )
+                        try:
+                            scale_deploy(0)
+                            msg = (
+                                f":rotating_light: *Inference degraded — PUE load STOPPED*\n"
+                                f"Failed {FAIL_COUNT_TRIGGER}x consecutive (threshold: {THRESHOLD_SECONDS}s)\n"
+                                f"Last: {detail} ({elapsed:.1f}s)\n"
+                                f"`{DEPLOY_NAME}` scaled to 0. Cooldown: {COOLDOWN_SECONDS}s."
+                            )
+                            send_slack(msg, color="#ff0000")
+                        except Exception as e:
+                            log.error("Failed to scale down %s: %s", DEPLOY_NAME, e)
+                            send_slack(
+                                f":x: *Failed to stop {DEPLOY_NAME}*: {e}",
+                                color="#ff0000",
+                            )
+                    else:
+                        log.info(
+                            "%s already stopped (replicas=%d) — inference issue unrelated",
+                            DEPLOY_NAME, replicas,
+                        )
+
+                    # Enter cooldown
+                    in_cooldown = True
+                    cooldown_until = time.time() + COOLDOWN_SECONDS
+                    fail_count = 0
+
+            time.sleep(CHECK_INTERVAL)
+
+        log.info("Inference Watchdog stopped.")
+
+
+    if __name__ == "__main__":
+        main()
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-watchdog
+  namespace: failure-prediction
+  labels:
+    app: inference-watchdog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inference-watchdog
+  template:
+    metadata:
+      labels:
+        app: inference-watchdog
+    spec:
+      serviceAccountName: inference-watchdog
+      nodeSelector:
+        kubernetes.io/hostname: node2        # lightweight pod on node2
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: watchdog
+        image: 10.100.230.130:5000/failure-pred:gpu-latest
+        imagePullPolicy: Always
+        command:
+          - python3
+          - /app/watchdog/watchdog.py
+        env:
+          - name: CHECK_INTERVAL
+            value: "30"
+          - name: THRESHOLD_SECONDS
+            value: "5.0"
+          - name: FAIL_COUNT_TRIGGER
+            value: "3"
+          - name: COOLDOWN_SECONDS
+            value: "300"
+          - name: INFERENCE_URL
+            value: "http://failure-pred-head-svc:8000/predict/node/all"
+          - name: DEPLOY_NAME
+            value: "pue-gpu-load"
+        resources:
+          requests:
+            cpu: "0.05"
+            memory: 64Mi
+          limits:
+            cpu: "0.2"
+            memory: 128Mi
+        volumeMounts:
+          - name: script
+            mountPath: /app/watchdog
+            readOnly: true
+          - name: slack-secret
+            mountPath: /etc/slack-secret
+            readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: inference-watchdog-script
+        - name: slack-secret
+          secret:
+            secretName: slack-secret
+            optional: true

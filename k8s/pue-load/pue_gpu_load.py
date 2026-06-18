@@ -74,8 +74,11 @@ VM_URL = os.getenv(
     "http://victoria-metrics-svc.failure-prediction:8428",
 )
 
-# node1 excluded: control-plane + inference only (GPU PCIe fault risk)
-GPU_NODES = ["node2", "node3", "node4"]
+# node1 excluded by default: control-plane + inference only (GPU PCIe fault risk)
+# Override via GPU_NODES env for node1-specific deployment
+_gpu_nodes_env = os.getenv("GPU_NODES", "")
+GPU_NODES = [n.strip() for n in _gpu_nodes_env.split(",") if n.strip()] \
+            if _gpu_nodes_env else ["node2", "node3", "node4"]
 NODE_INST = {f"node{i}": f"10.100.230.{129 + i}:9100" for i in range(1, 5)}
 
 
@@ -569,10 +572,11 @@ def _probe_gpu_workers():
             continue
         if rn.get("Resources", {}).get("GPU", 0) <= 0:
             continue
-        # Skip head pod — node1 is control-plane only
-        if "head" in rn.get("NodeManagerHostname", ""):
-            log.info("Skipping head pod (control-plane protected)")
-            continue
+        # Skip head pod — node1 is control-plane only (unless INCLUDE_HEAD_NODE=1)
+        if os.getenv("INCLUDE_HEAD_NODE", "0") != "1":
+            if "head" in rn.get("NodeManagerHostname", ""):
+                log.info("Skipping head pod (control-plane protected)")
+                continue
         gpu_workers.append(rn)
 
     healthy = []

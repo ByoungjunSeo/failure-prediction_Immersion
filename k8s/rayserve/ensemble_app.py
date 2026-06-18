@@ -29,7 +29,7 @@ SELF_NODE_INSTANCE = {f"node{i}": f"10.100.230.{129 + i}:9100"
                       for i in range(1, 6)}
 
 
-@serve.deployment(num_replicas=4, max_replicas_per_node=1,
+@serve.deployment(num_replicas=3, max_replicas_per_node=1,
                   ray_actor_options={"num_cpus": 1, "num_gpus": 0.25},
                   health_check_period_s=30, health_check_timeout_s=10)
 class ChronosPredictor:
@@ -61,7 +61,7 @@ class ChronosPredictor:
         return {"anomaly_score": score, "model": "chronos"}
 
 
-@serve.deployment(num_replicas=4, max_replicas_per_node=1,
+@serve.deployment(num_replicas=3, max_replicas_per_node=1,
                   ray_actor_options={"num_cpus": 1, "num_gpus": 0.25},
                   health_check_period_s=30, health_check_timeout_s=10)
 class MOIRAIPredictor:
@@ -123,7 +123,7 @@ class XGBoostPredictor:
         return {"anomaly_score": prob, "model": "xgboost"}
 
 
-@serve.deployment(num_replicas=4, max_replicas_per_node=1,
+@serve.deployment(num_replicas=3, max_replicas_per_node=1,
                   ray_actor_options={"num_cpus": 1, "num_gpus": 0.10},
                   health_check_period_s=30, health_check_timeout_s=10)
 class AnomalyTransformerPredictor:
@@ -399,10 +399,10 @@ class AnomalyEnsemble:
     # ---- ESXi 추론 (기존) ----
     @app.get("/predict/all")
     async def predict_all(self):
-        predictions = []
-        for srv in self.servers:
-            r = await self._predict_single(srv)
-            predictions.append(r)
+        predictions = await asyncio.gather(
+            *[self._predict_single(srv) for srv in self.servers]
+        )
+        predictions = list(predictions)
         return {"predictions": predictions, "total": len(predictions),
                 "warning_count": sum(1 for p in predictions if p["risk_level"] == "WARNING"),
                 "critical_count": sum(1 for p in predictions if p["risk_level"] == "CRITICAL")}
@@ -422,10 +422,10 @@ class AnomalyEnsemble:
     # ---- 신규 5 노드 self-monitoring 추론 ----
     @app.get("/predict/node/all")
     async def predict_node_all(self):
-        predictions = []
-        for n in self.nodes:
-            r = await self._predict_node_single(n)
-            predictions.append(r)
+        predictions = await asyncio.gather(
+            *[self._predict_node_single(n) for n in self.nodes]
+        )
+        predictions = list(predictions)
         return {"predictions": predictions, "total": len(predictions),
                 "target_type": "node",
                 "warning_count": sum(1 for p in predictions if p["risk_level"] == "WARNING"),
