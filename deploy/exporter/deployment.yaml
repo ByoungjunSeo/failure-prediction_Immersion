@@ -1,0 +1,74 @@
+##
+## PUE Data Exporter — Deployment (공유 이미지 + 코드 ConfigMap 마운트 방식)
+##
+## 공유 이미지 failure-pred:gpu-latest 에 fastapi/uvicorn/requests 가 이미 포함되어
+## 있어 별도 이미지 빌드 없이 코드만 ConfigMap 으로 주입한다(기존 pue-web 패턴).
+##
+## Deploy:
+##   1. kubectl -n failure-prediction create configmap pue-data-exporter-app \
+##        --from-file=app.py=services/pue-data-exporter/app.py \
+##        --from-file=exporter.py=services/pue-data-exporter/exporter.py \
+##        --dry-run=client -o yaml | kubectl apply -f -
+##   2. kubectl apply -f deploy/exporter/configmap.yaml
+##   3. kubectl apply -f deploy/exporter/deployment.yaml
+##   4. kubectl apply -f deploy/exporter/service.yaml
+##
+## Access: http://<any-node-ip>:31620
+##
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pue-data-exporter
+  namespace: failure-prediction
+  labels:
+    app: pue-data-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pue-data-exporter
+  template:
+    metadata:
+      labels:
+        app: pue-data-exporter
+    spec:
+      containers:
+        - name: exporter
+          image: 10.100.230.130:5000/failure-pred:gpu-latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /app/exporter/app.py
+          envFrom:
+            - configMapRef:
+                name: pue-data-exporter-config
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: "0.1"
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: app
+              mountPath: /app/exporter
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: app
+          configMap:
+            name: pue-data-exporter-app
